@@ -1,0 +1,219 @@
+#!/bin/bash
+
+set -e
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+CONTAINER_NAME="wintermutt-vault"
+VAULT_NETWORK="${VAULT_NETWORK:-}"
+VAULT_TOKEN="root"
+ROLE_NAME="wintermutt-role"
+POLICY_NAME="wintermutt-policy"
+MOUNT_PATH="secrets"
+KEYS_DIR="$DIR/../build/test_keys"
+SERVER_PID_FILE="$KEYS_DIR/server.pid"
+SERVER_LOG_FILE="$KEYS_DIR/server.log"
+
+# Helper to get current Vault address (Internal IP)
+get_vault_addr() {
+    if [ -n "$VAULT_NETWORK" ]; then
+        V_IP=$(docker inspect -f "{{with index .NetworkSettings.Networks \"$VAULT_NETWORK\"}}{{.IPAddress}}{{end}}" "$CONTAINER_NAME" 2>/dev/null)
+    fi
+    if [ -z "$V_IP" ]; then
+        V_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CONTAINER_NAME" 2>/dev/null || echo "127.0.0.1")
+    fi
+    echo "http://$V_IP:8200"
+}
+
+# Helper for vault commands in docker
+v_exec() {
+    docker exec -e "VAULT_TOKEN=$VAULT_TOKEN" -e "VAULT_ADDR=$(get_vault_addr)" "$CONTAINER_NAME" vault "$@"
+}
+
+mkdir -p "$KEYS_DIR"
+
+stop_vault() {
+    echo "Stopping Vault container..."
+    docker stop $CONTAINER_NAME >/dev/null 2>&1 || true
+    docker rm $CONTAINER_NAME >/dev/null 2>&1 || true
+    rm -f "$KEYS_DIR/test_role_id" "$KEYS_DIR/test_secret_id"
+    echo "Vault stopped."
+}
+
+start_vault() {
+    stop_vault
+
+    mkdir -p "$KEYS_DIR"
+    echo "Generating test SSH keys..."
+    [ -f "$KEYS_DIR/id_rsa" ] || ssh-keygen -t rsa -b 2048 -f "$KEYS_DIR/id_rsa" -N "" -q
+    [ -f "$KEYS_DIR/id_ed25519" ] || ssh-keygen -t ed25519 -f "$KEYS_DIR/id_ed25519" -N "" -q
+    [ -f "$KEYS_DIR/id_rsa_unauthorized" ] || ssh-keygen -t rsa -b 2048 -f "$KEYS_DIR/id_rsa_unauthorized" -N "" -q # Third key, unauthorized
+
+    # Extract fingerprints
+    RSA_FINGERPRINT=$(ssh-keygen -l -E sha256 -f "$KEYS_DIR/id_rsa.pub" | awk '{print $2}' | cut -d: -f2)
+    ED25519_FINGERPRINT=$(ssh-keygen -l -E sha256 -f "$KEYS_DIR/id_ed25519.pub" | awk '{print $2}' | cut -d: -f2)
+
+    echo "RSA Fingerprint (Authorized): $RSA_FINGERPRINT"
+    echo "Ed25519 Fingerprint (Authorized): $ED25519_FINGERPRINT"
+
+    echo "Starting Vault in dev mode..."
+    NETWORK_ARG=""
+    if [ -n "$VAULT_NETWORK" ]; then
+        echo "Ensuring docker network '$VAULT_NETWORK' exists..."
+        if ! docker network inspect "$VAULT_NETWORK" >/dev/null 2>&1; then
+            echo "Error: docker network '$VAULT_NETWORK' does not exist"
+            exit 1
+        fi
+        NETWORK_ARG="--network $VAULT_NETWORK"
+    fi
+
+    docker run -d \
+        --name $CONTAINER_NAME \
+        $NETWORK_ARG \
+        -p 8200:8200 \
+        -e "VAULT_DEV_ROOT_TOKEN_ID=$VAULT_TOKEN" \
+        hashicorp/vault
+
+    echo "Waiting for Vault to be ready..."
+    until v_exec status >/dev/null 2>&1; do
+        sleep 1
+    done
+
+    V_ADDR=$(get_vault_addr)
+    echo "Vault Internal Address: $V_ADDR"
+
+    echo "Configuring Vault..."
+    v_exec auth enable approle
+    v_exec secrets enable -path=$MOUNT_PATH kv-v2
+
+    docker exec -e "VAULT_TOKEN=$VAULT_TOKEN" -e "VAULT_ADDR=$V_ADDR" "$CONTAINER_NAME" sh -c "cat <<EOF | vault policy write $POLICY_NAME -
+path \"$MOUNT_PATH/metadata/wintermutt/*\" {
+  capabilities = [\"list\", \"read\"]
+}
+path \"$MOUNT_PATH/data/wintermutt/*\" {
+  capabilities = [\"read\"]
+}
+EOF"
+
+    v_exec write auth/approle/role/$ROLE_NAME \
+        token_policies="$POLICY_NAME" \
+        token_ttl=1h \
+        token_max_ttl=4h
+
+    v_exec read -format=json auth/approle/role/$ROLE_NAME/role-id | grep -oE '"role_id": "([^"]+)"' | cut -d'"' -f4 > "$KEYS_DIR/test_role_id"
+    v_exec write -f -format=json auth/approle/role/$ROLE_NAME/secret-id | grep -oE '"secret_id": "([^"]+)"' | cut -d'"' -f4 > "$KEYS_DIR/test_secret_id"
+
+    # Save allowed keys JSON (RSA and Ed25519 fingerprints)
+    RSA_KEY_PUB=$(cat "$KEYS_DIR/id_rsa.pub")
+    ED_KEY_PUB=$(cat "$KEYS_DIR/id_ed25519.pub")
+    # Marshal keys to authorized format for comparison
+    MARSHALED_RSA_KEY="$(jq -n --arg key "$RSA_KEY_PUB" '$key')"
+    MARSHALED_ED_KEY="$(jq -n --arg key "$ED_KEY_PUB" '$key')"
+
+    # Vault KV v2 expects a JSON object with a list of strings for the keys
+    # Ensure keys are properly escaped for JSON
+    # Example JSON structure: {"keys": ["ssh-rsa AAAA...", "ssh-ed25519 BBBB..."]}
+    v_exec kv put $MOUNT_PATH/wintermutt/allowed-keys keys="[$MARSHALED_RSA_KEY, $MARSHALED_ED_KEY]"
+
+
+    echo "Seeding test secrets..."
+    # Shared secrets
+    v_exec kv put $MOUNT_PATH/wintermutt/shared/api_key value="shared-api-key-abc"
+    v_exec kv put $MOUNT_PATH/wintermutt/shared/db_password value="shared-secret-123"
+
+    # RSA Client secrets (authorized)
+    v_exec kv put $MOUNT_PATH/wintermutt/$RSA_FINGERPRINT/db_password value="rsa-specific-password"
+    v_exec kv put $MOUNT_PATH/wintermutt/$RSA_FINGERPRINT/WINTERMUTT_SHARED_PATH value="$MOUNT_PATH/data/wintermutt/shared"
+
+    # Ed25519 Client secrets (authorized, no shared path)
+    v_exec kv put $MOUNT_PATH/wintermutt/$ED25519_FINGERPRINT/db_password value="ed25519-specific-password"
+    # No WINTERMUTT_SHARED_PATH for Ed25519
+
+    # Unauthorized RSA client has no secrets seeded for its fingerprint
+    # and is not listed in allowed-keys.
+
+    echo "Vault is ready."
+}
+
+wintermutt_start() {
+    if [ ! -f "$KEYS_DIR/test_role_id" ] || [ ! -f "$KEYS_DIR/test_secret_id" ]; then
+        echo "Error: Vault test environment is not running. Run --start-vault first."
+        exit 1
+    fi
+
+    V_ADDR=$(get_vault_addr)
+    SERVER_BIN="$DIR/../build/server"
+    if [ ! -f "$SERVER_BIN" ]; then
+        echo "Server binary not found. Building..."
+        (cd "$DIR/.." && just build)
+    fi
+
+    # Pass additional arguments to the server binary
+    SERVER_ARGS=("$@") # $@ will capture all arguments passed after --start-wintermutt
+
+    echo "Starting wintermutt server in background (Vault at $V_ADDR)..."
+    "$SERVER_BIN" \
+        -vault-address "$V_ADDR" \
+        -app-role-id "$(cat "$KEYS_DIR/test_role_id")" \
+        -secret-id-file "$KEYS_DIR/test_secret_id" \
+        -common-prefix "secrets/data/wintermutt" \
+        -listen-address ":2222" \
+        -storage "$KEYS_DIR" \
+        "${SERVER_ARGS[@]}" > "$SERVER_LOG_FILE" 2>&1 &
+
+    echo $! > "$SERVER_PID_FILE"
+    echo "Server started with PID $(cat "$SERVER_PID_FILE"). Logs: $SERVER_LOG_FILE"
+}
+
+wintermutt_stop() {
+    if [ -f "$SERVER_PID_FILE" ]; then
+        PID=$(cat "$SERVER_PID_FILE")
+        echo "Stopping wintermutt server (PID $PID)..."
+        kill "$PID" || true
+        rm -f "$SERVER_PID_FILE"
+        echo "Server stopped."
+    else
+        echo "Server PID file not found."
+    fi
+}
+
+ssh_rsa() {
+    ssh -i "$KEYS_DIR/id_rsa" -p 2222 -o StrictHostKeyChecking=no localhost
+}
+
+ssh_ed25519() {
+    ssh -i "$KEYS_DIR/id_ed25519" -p 2222 -o StrictHostKeyChecking=no localhost
+}
+
+ssh_rsa_unauthorized() {
+    ssh -i "$KEYS_DIR/id_rsa_unauthorized" -p 2222 -o StrictHostKeyChecking=no localhost
+}
+
+case "$1" in
+    --start-vault)
+        start_vault
+        ;;
+    --stop-vault)
+        stop_vault
+        ;;
+    --start-wintermutt)
+        shift # Remove --start-wintermutt from arguments
+        wintermutt_start "$@" # Pass remaining arguments to wintermutt_start
+        ;;
+    --stop-wintermutt)
+        wintermutt_stop
+        ;;
+    --ssh-rsa)
+        ssh_rsa
+        ;;
+    --ssh-ed25519)
+        ssh_ed25519
+        ;;
+    --ssh-rsa-unauthorized)
+        ssh_rsa_unauthorized
+        ;;
+    *)
+        echo "Usage: $0 {--start-vault|--stop-vault|--start-wintermutt [server_args]|--stop-wintermutt|--ssh-rsa|--ssh-ed25519|--ssh-rsa-unauthorized}"
+        exit 1
+        ;;
+esac

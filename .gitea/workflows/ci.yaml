@@ -1,0 +1,64 @@
+name: CI
+
+on:
+    push:
+        branches: ["*"]
+    pull_request:
+        branches: ["main"]
+
+jobs:
+    build-and-test:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Set up Go!
+              uses: actions/setup-go@v5
+              with:
+                  go-version: "1.25"
+
+            - uses: taiki-e/install-action@just
+
+            - name: Check formatting
+              run: just fmt
+
+            - name: Run lint
+              run: just lint
+
+            - name: Run tests
+              run: just test
+
+            - name: Build
+              run: just build
+
+            - name: Run integration tests
+              env:
+                  VAULT_NETWORK: ci-network
+              run: just test-itg
+
+    build-and-push-docker:
+        runs-on: ubuntu-latest
+        needs: build-and-test
+        if: github.ref == 'refs/heads/main'
+        steps:
+            - uses: actions/checkout@v4
+
+            - name: Extract Domain
+              shell: bash
+              run: |
+                DOMAIN=$(echo "${{ gitea.server_url }}" | sed -e 's|^[^/]*//||' -e 's|/.*$||')
+                echo "GITEA_DOMAIN=$DOMAIN" >> $GITHUB_ENV
+
+            - name: Login to Gitea Registry
+              uses: docker/login-action@v3
+              with:
+                registry: ${{ env.GITEA_DOMAIN }}
+                username: ${{ gitea.actor }}
+                password: ${{ secrets.REPO_TOKEN }}
+
+            - name: Build and push Docker image
+              uses: docker/build-push-action@v5
+              with:
+                context: .
+                push: true
+                tags: ${{ env.GITEA_DOMAIN }}/${{ gitea.repository }}:latest

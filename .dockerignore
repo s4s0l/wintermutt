@@ -1,0 +1,10 @@
+build/
+*.log
+coverage.out
+coverage.html
+.git/
+.gitignore
+justfile
+README.md
+scripts/
+wintermutt/*.test

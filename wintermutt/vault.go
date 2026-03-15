@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path"
@@ -46,6 +47,32 @@ func NewClient(vaultAddr, roleID, secretIDFile string) (*Client, error) {
 
 	if authInfo == nil {
 		return nil, fmt.Errorf("no auth info returned from Vault login")
+	}
+
+	return &Client{client: client}, nil
+}
+
+func NewClientWithTokenFile(vaultAddr, tokenFile string) (*Client, error) {
+	tokenBytes, err := os.ReadFile(tokenFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read token file %s: %w", tokenFile, err)
+	}
+
+	tokenStr := strings.TrimSpace(string(tokenBytes))
+
+	config := api.DefaultConfig()
+	config.Address = vaultAddr
+
+	client, err := api.NewClient(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create vault client: %w", err)
+	}
+
+	client.SetToken(tokenStr)
+
+	_, err = client.Auth().Token().LookupSelf()
+	if err != nil {
+		return nil, fmt.Errorf("failed to validate token: %w", err)
 	}
 
 	return &Client{client: client}, nil
@@ -126,4 +153,52 @@ func (c *Client) GetSecrets(basePath string) (map[string]string, error) {
 	}
 
 	return secrets, nil
+}
+
+func (c *Client) SetSecret(path, name, value string) error {
+	data := map[string]interface{}{
+		"value": value,
+	}
+	_, err := c.client.Logical().Write(path+"/"+name, map[string]interface{}{
+		"data": data,
+	})
+	return err
+}
+
+func (c *Client) DeleteSecret(path, name string) error {
+	_, err := c.client.Logical().Delete(path + "/" + name)
+	return err
+}
+
+func (c *Client) UpdateAllowedKeys(path, publicKey string, add bool) error {
+	data, err := c.GetRawSecret(path)
+	if err != nil && !strings.Contains(err.Error(), "no such secret") {
+		return err
+	}
+
+	var keys []string
+	if data != nil {
+		if keysStr, ok := data["keys"].(string); ok {
+			json.Unmarshal([]byte(keysStr), &keys)
+		}
+	}
+
+	if add {
+		keys = append(keys, publicKey)
+	} else {
+		for i, k := range keys {
+			if k == publicKey {
+				keys = append(keys[:i], keys[i+1:]...)
+				break
+			}
+		}
+	}
+
+	keysJSON, _ := json.Marshal(keys)
+	_, err = c.client.Logical().Write(path, map[string]interface{}{
+		"data": map[string]interface{}{
+			"keys": string(keysJSON),
+		},
+	})
+	return err
 }

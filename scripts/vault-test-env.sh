@@ -11,6 +11,7 @@ ROLE_NAME="wintermutt-role"
 POLICY_NAME="wintermutt-policy"
 MOUNT_PATH="secrets"
 KEYS_DIR="$DIR/../build/test_keys"
+VAULT_TOKEN_FILE="$KEYS_DIR/test_vault_token"
 SERVER_PID_FILE="$KEYS_DIR/server.pid"
 SERVER_LOG_FILE="$KEYS_DIR/server.log"
 
@@ -36,7 +37,7 @@ stop_vault() {
     echo "Stopping Vault container..."
     docker stop $CONTAINER_NAME >/dev/null 2>&1 || true
     docker rm $CONTAINER_NAME >/dev/null 2>&1 || true
-    rm -f "$KEYS_DIR/test_role_id" "$KEYS_DIR/test_secret_id"
+    rm -f "$KEYS_DIR/test_role_id" "$KEYS_DIR/test_secret_id" "$VAULT_TOKEN_FILE"
     echo "Vault stopped."
 }
 
@@ -44,6 +45,10 @@ start_vault() {
     stop_vault
 
     mkdir -p "$KEYS_DIR"
+    echo "Saving Vault token to $VAULT_TOKEN_FILE..."
+    echo "$VAULT_TOKEN" > "$VAULT_TOKEN_FILE"
+    chmod 600 "$VAULT_TOKEN_FILE"
+
     echo "Generating test SSH keys..."
     [ -f "$KEYS_DIR/id_rsa" ] || ssh-keygen -t rsa -b 2048 -f "$KEYS_DIR/id_rsa" -N "" -q
     [ -f "$KEYS_DIR/id_ed25519" ] || ssh-keygen -t ed25519 -f "$KEYS_DIR/id_ed25519" -N "" -q
@@ -177,6 +182,20 @@ wintermutt_stop() {
     fi
 }
 
+stop_all() {
+    echo "Stopping all services..."
+    wintermutt_stop
+    stop_vault
+    echo "All services stopped."
+}
+
+start_all() {
+    echo "Starting all services..."
+    start_vault
+    wintermutt_start
+    echo "All services started."
+}
+
 ssh_rsa() {
     ssh -i "$KEYS_DIR/id_rsa" -p 2222 -o StrictHostKeyChecking=no localhost
 }
@@ -203,6 +222,12 @@ case "$1" in
     --stop-wintermutt)
         wintermutt_stop
         ;;
+    --stop-all)
+        stop_all
+        ;;
+    --start-all)
+        start_all
+        ;;
     --ssh-rsa)
         ssh_rsa
         ;;
@@ -213,7 +238,7 @@ case "$1" in
         ssh_rsa_unauthorized
         ;;
     *)
-        echo "Usage: $0 {--start-vault|--stop-vault|--start-wintermutt [server_args]|--stop-wintermutt|--ssh-rsa|--ssh-ed25519|--ssh-rsa-unauthorized}"
+        echo "Usage: $0 {--start-vault|--stop-vault|--start-wintermutt [server_args]|--stop-wintermutt|--stop-all|--start-all|--ssh-rsa|--ssh-ed25519|--ssh-rsa-unauthorized}"
         exit 1
         ;;
 esac

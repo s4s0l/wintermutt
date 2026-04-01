@@ -80,22 +80,16 @@ func Load() (*Config, error) {
 	// Collect remaining positional args
 	positionalArgs = append(positionalArgs, flag.Args()...)
 
-	if len(positionalArgs) >= 2 {
-		firstArg := positionalArgs[0]
-		secondArg := positionalArgs[1]
-
-		if firstArg == "cli" {
-			cfg.Mode = "cli"
-			cfg.Operation = secondArg
+	if cfg.VaultTokenFile != "" {
+		cfg.Mode = "cli"
+		if len(positionalArgs) >= 1 {
+			cfg.Operation = positionalArgs[0]
 		}
 	}
 
 	if cfg.Mode == "cli" {
 		if cfg.VaultAddress == "" {
 			return nil, fmt.Errorf("-vault-address is required")
-		}
-		if cfg.VaultTokenFile == "" {
-			return nil, fmt.Errorf("-vault-token-file is required for CLI mode")
 		}
 		if cfg.Operation == "" {
 			return nil, fmt.Errorf("CLI operation required: set, rm, allow, revoke, or list-allowed")

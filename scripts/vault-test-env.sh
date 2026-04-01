@@ -60,8 +60,8 @@ start_vault() {
 	RSA_FINGERPRINT_RAW=$(ssh-keygen -l -E sha256 -f "$KEYS_DIR/id_rsa.pub" | awk '{print $2}')
 	ED25519_FINGERPRINT_RAW=$(ssh-keygen -l -E sha256 -f "$KEYS_DIR/id_ed25519.pub" | awk '{print $2}')
 	# Remove SHA256: prefix, decode base64 (with -i to ignore invalid input), then encode as hex
-	RSA_FINGERPRINT=$(echo "${RSA_FINGERPRINT_RAW#SHA256:}" | base64 -d -i 2>/dev/null | xxd -p | tr -d '\n')
-	ED25519_FINGERPRINT=$(echo "${ED25519_FINGERPRINT_RAW#SHA256:}" | base64 -d -i 2>/dev/null | xxd -p | tr -d '\n')
+	RSA_FINGERPRINT=$(echo "${RSA_FINGERPRINT_RAW#SHA256:}" | base64 -d -i 2>/dev/null | od -An -tx1 | tr -d ' \n')
+	ED25519_FINGERPRINT=$(echo "${ED25519_FINGERPRINT_RAW#SHA256:}" | base64 -d -i 2>/dev/null | od -An -tx1 | tr -d ' \n')
 
 	echo "RSA Fingerprint (Authorized): $RSA_FINGERPRINT"
 	echo "Ed25519 Fingerprint (Authorized): $ED25519_FINGERPRINT"

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -46,11 +47,14 @@ func deriveFingerprint(publicKey string) (string, error) {
 	}
 
 	fingerprint := ssh.FingerprintSHA256(parsedKey)
-	// Remove SHA256: prefix to get ASCII string with slashes (e.g., "Hx9G.../...rtytE")
-	// Encode the ASCII string (including slashes) as hex to make it path-safe
-	// This preserves the entire fingerprint hash string while making it path-safe
+	// Remove SHA256: prefix to get base64-encoded bytes (e.g., "Hx9G.../...rtytE")
+	// Decode the base64 bytes, then encode as hex for path-safe fingerprint
 	fingerprint = strings.TrimPrefix(fingerprint, "SHA256:")
-	return hex.EncodeToString([]byte(fingerprint)), nil
+	decoded, err := base64.RawStdEncoding.DecodeString(fingerprint)
+	if err != nil {
+		return "", fmt.Errorf("failed to decode fingerprint base64: %w", err)
+	}
+	return hex.EncodeToString(decoded), nil
 }
 
 func readSecretValue() (string, error) {

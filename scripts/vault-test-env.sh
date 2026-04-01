@@ -55,13 +55,13 @@ start_vault() {
 	[ -f "$KEYS_DIR/id_rsa_unauthorized" ] || ssh-keygen -t rsa -b 2048 -f "$KEYS_DIR/id_rsa_unauthorized" -N "" -q # Third key, unauthorized
 
 	# Extract fingerprints and convert to hex-encoded strings
-	# ssh-keygen returns format like "SHA256:Hx9G.../...rtytE" where the part after SHA256: is the fingerprint
-	# We take the fingerprint string (with slashes), encode it as ASCII bytes, then encode as hex
+	# ssh-keygen returns format like "SHA256:Hx9G.../...rtytE" where the part after SHA256: is base64-encoded bytes
+	# We decode the base64 bytes, then encode as hex for path-safe fingerprint
 	RSA_FINGERPRINT_RAW=$(ssh-keygen -l -E sha256 -f "$KEYS_DIR/id_rsa.pub" | awk '{print $2}')
 	ED25519_FINGERPRINT_RAW=$(ssh-keygen -l -E sha256 -f "$KEYS_DIR/id_ed25519.pub" | awk '{print $2}')
-	# Remove SHA256: prefix, then encode the ASCII string (including slashes) as hex
-	RSA_FINGERPRINT=$(echo -n "${RSA_FINGERPRINT_RAW#SHA256:}" | xxd -p | tr -d '\n')
-	ED25519_FINGERPRINT=$(echo -n "${ED25519_FINGERPRINT_RAW#SHA256:}" | xxd -p | tr -d '\n')
+	# Remove SHA256: prefix, decode base64 (with -i to ignore invalid input), then encode as hex
+	RSA_FINGERPRINT=$(echo "${RSA_FINGERPRINT_RAW#SHA256:}" | base64 -d -i 2>/dev/null | xxd -p | tr -d '\n')
+	ED25519_FINGERPRINT=$(echo "${ED25519_FINGERPRINT_RAW#SHA256:}" | base64 -d -i 2>/dev/null | xxd -p | tr -d '\n')
 
 	echo "RSA Fingerprint (Authorized): $RSA_FINGERPRINT"
 	echo "Ed25519 Fingerprint (Authorized): $ED25519_FINGERPRINT"

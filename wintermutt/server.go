@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -97,11 +98,14 @@ func (s *Server) Start() error {
 		}
 
 		fingerprint := ssh.FingerprintSHA256(key)
-		// Remove SHA256: prefix to get ASCII string with slashes (e.g., "Hx9G.../...rtytE")
-		// Encode the ASCII string (including slashes) as hex to make it path-safe
-		// This preserves the entire fingerprint hash string while making it path-safe
+		// Remove SHA256: prefix to get base64-encoded bytes (e.g., "Hx9G.../...rtytE")
+		// Decode the base64 bytes, then encode as hex for path-safe fingerprint
 		fingerprint = strings.TrimPrefix(fingerprint, "SHA256:")
-		fingerprint = hex.EncodeToString([]byte(fingerprint))
+		decoded, err := base64.RawStdEncoding.DecodeString(fingerprint)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode fingerprint base64: %w", err)
+		}
+		fingerprint = hex.EncodeToString(decoded)
 
 		return &ssh.Permissions{
 			Extensions: map[string]string{

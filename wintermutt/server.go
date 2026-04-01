@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"path"
 	"strings"
@@ -78,7 +77,6 @@ func (s *Server) Start() error {
 				return nil, fmt.Errorf("failed to strip id_pub key: %w", err)
 			}
 			keyStr = *stripped
-			fmt.Printf("testing id pub: %s\n", keyStr)
 			authorized := false
 			for _, a := range allowedList {
 				x, err := _StripIdPubKey(a)
@@ -127,7 +125,7 @@ func (s *Server) Start() error {
 			if errors.Is(err, net.ErrClosed) {
 				return nil
 			}
-			log.Printf("Accept error: %v", err)
+			logger.Error("Accept error", "error", err)
 			continue
 		}
 
@@ -140,7 +138,7 @@ func (s *Server) handleConn(conn net.Conn, sshConfig *ssh.ServerConfig) {
 
 	sshConn, chans, reqs, err := ssh.NewServerConn(conn, sshConfig)
 	if err != nil {
-		log.Printf("SSH handshake error: %v", err)
+		logger.Error("SSH handshake error", "error", err)
 		return
 	}
 
@@ -152,12 +150,12 @@ func (s *Server) handleConn(conn net.Conn, sshConfig *ssh.ServerConfig) {
 	}
 
 	if fingerprint == "" {
-		log.Printf("No fingerprint available")
+		logger.Error("No fingerprint available")
 		sshConn.Close()
 		return
 	}
 
-	log.Printf("Client connected with fingerprint: %s", fingerprint)
+	logger.Info("Client connected", "fingerprint", fingerprint)
 
 	var wg sync.WaitGroup
 	for ch := range chans {
@@ -200,7 +198,7 @@ func (s *Server) handleChannel(ch ssh.NewChannel, fingerprint string) {
 
 	conn, reqs, err := ch.Accept()
 	if err != nil {
-		log.Printf("Failed to accept channel: %v", err)
+		logger.Error("Failed to accept channel", "error", err)
 		return
 	}
 
@@ -223,7 +221,7 @@ func (s *Server) handleChannel(ch ssh.NewChannel, fingerprint string) {
 	commonPath := path.Join(s.cfg.CommonPrefix, fingerprint)
 	commonSecrets, err := s.vault.GetSecrets(commonPath)
 	if err != nil {
-		log.Printf("Failed to fetch common secrets for %s: %v", fingerprint, err)
+		logger.Error("Failed to fetch common secrets", "fingerprint", fingerprint, "error", err)
 		fmt.Fprintf(conn, "Error fetching secrets\n")
 		conn.Close()
 		return
@@ -239,7 +237,7 @@ func (s *Server) handleChannel(ch ssh.NewChannel, fingerprint string) {
 		var err error
 		sharedSecrets, err = s.vault.GetSecrets(sharedPath)
 		if err != nil {
-			log.Printf("Failed to fetch shared secrets from %s: %v", sharedPath, err)
+			logger.Error("Failed to fetch shared secrets", "path", sharedPath, "error", err)
 		}
 	}
 

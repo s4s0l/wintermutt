@@ -161,7 +161,116 @@ if echo "$SSH_OUTPUT" | grep -q "cli_test_secret"; then
 else
 	echo -e "${RED}FAIL: CLI set secret was not retrievable via SSH.${NC}"
 	fail_test
-	exit 1
+fi
+
+# =======================================================================================================
+echo -e "${YELLOW}--- Test Case 7: CLI - Delete Secret (rm) ---${NC}"
+
+# Set a secret to delete
+echo "Testing CLI rm operation..."
+RM_SECRET_VALUE="cli-rm-secret-$(date +%s)"
+echo "$RM_SECRET_VALUE" | "$ENV_SCRIPT" --cli set -public-key "$DIR/../build/test_keys/id_rsa.pub" -common-prefix "secrets/data/wintermutt" -name "cli_delete_me" 2>&1
+
+sleep 2
+
+# Verify it exists
+SSH_OUTPUT=$("$ENV_SCRIPT" --ssh-rsa)
+echo "$SSH_OUTPUT"
+if echo "$SSH_OUTPUT" | grep -q "cli_delete_me"; then
+	echo "Secret exists, proceeding to delete..."
+else
+	echo -e "${RED}FAIL: Secret was not set.${NC}"
+	fail_test
+fi
+
+# Delete the secret
+"$ENV_SCRIPT" --cli rm -public-key "$DIR/../build/test_keys/id_rsa.pub" -common-prefix "secrets/data/wintermutt" -name "cli_delete_me" 2>&1
+
+sleep 2
+
+# Verify it's gone
+SSH_OUTPUT=$("$ENV_SCRIPT" --ssh-rsa)
+echo "$SSH_OUTPUT"
+if ! echo "$SSH_OUTPUT" | grep -q "cli_delete_me"; then
+	echo -e "${GREEN}PASS: CLI rm deleted secret successfully.${NC}"
+else
+	echo -e "${RED}FAIL: Secret still exists after rm.${NC}"
+	fail_test
+fi
+
+# =======================================================================================================
+echo -e "${YELLOW}--- Test Case 8: CLI - Add Key to Allowed List (allow) ---${NC}"
+
+# Generate a new key pair for testing (remove first to avoid overwrite prompt)
+NEW_KEY_DIR="$DIR/../build/test_keys"
+rm -f "$NEW_KEY_DIR/id_ed25519_new" "$NEW_KEY_DIR/id_ed25519_new.pub"
+ssh-keygen -t ed25519 -f "$NEW_KEY_DIR/id_ed25519_new" -N "" -q
+
+# Add the new key to allowed list
+echo "Testing CLI allow operation..."
+"$ENV_SCRIPT" --cli allow -public-key "$NEW_KEY_DIR/id_ed25519_new.pub" -common-prefix "secrets/data/wintermutt" -allowed-keys-path "secrets/data/wintermutt/allowed-keys" 2>&1
+
+sleep 2
+
+# Verify it's in the list
+LIST_OUTPUT=$("$ENV_SCRIPT" --cli list-allowed -allowed-keys-path "secrets/data/wintermutt/allowed-keys" 2>&1)
+echo "$LIST_OUTPUT"
+KEY_COUNT=$(echo "$LIST_OUTPUT" | grep -c "ssh-ed25519")
+if [ "$KEY_COUNT" -eq 2 ]; then
+	echo -e "${GREEN}PASS: CLI allow added key to allowed list.${NC}"
+else
+	echo -e "${RED}FAIL: Key not found in allowed list. Found $KEY_COUNT, expected 2.${NC}"
+	fail_test
+fi
+
+# Test SSH with the new key (should work now - capture both stdout and stderr)
+NEW_KEY_OUTPUT=$(ssh -i "$NEW_KEY_DIR/id_ed25519_new" -p 2222 -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -o BatchMode=yes -o PreferredAuthentications=publickey localhost 2>&1 || true)
+echo "New key SSH output:"
+echo "$NEW_KEY_OUTPUT"
+echo "---"
+# If connection succeeds but no secrets exist, output will be empty or just the pty warning
+# So we just check that it didn't fail with "Permission denied"
+if ! echo "$NEW_KEY_OUTPUT" | grep -q "Permission denied"; then
+	echo -e "${GREEN}PASS: SSH with newly allowed key succeeded.${NC}"
+else
+	echo -e "${RED}FAIL: SSH with newly allowed key failed.${NC}"
+	fail_test
+fi
+
+# Restart server to pick up the new allowed key for Test 9
+"$ENV_SCRIPT" --stop-wintermutt
+"$ENV_SCRIPT" --start-wintermutt -common-prefix "secrets/data/wintermutt" -allowed-keys-path "secrets/data/wintermutt/allowed-keys"
+sleep 3
+
+# =======================================================================================================
+echo -e "${YELLOW}--- Test Case 9: CLI - Remove Key from Allowed List (revoke) ---${NC}"
+
+# Revoke the key we just added
+echo "Testing CLI revoke operation..."
+"$ENV_SCRIPT" --cli revoke -public-key "$NEW_KEY_DIR/id_ed25519_new.pub" -common-prefix "secrets/data/wintermutt" -allowed-keys-path "secrets/data/wintermutt/allowed-keys" 2>&1
+
+sleep 2
+
+# Verify it's removed from the list
+LIST_OUTPUT=$("$ENV_SCRIPT" --cli list-allowed -allowed-keys-path "secrets/data/wintermutt/allowed-keys" 2>&1)
+echo "List after revoke:"
+echo "$LIST_OUTPUT"
+echo "---"
+KEY_COUNT=$(echo "$LIST_OUTPUT" | grep -c "ssh-ed25519")
+echo "ed25519 key count: $KEY_COUNT"
+if [ "$KEY_COUNT" -eq 1 ]; then
+	echo -e "${GREEN}PASS: CLI revoke removed key from allowed list.${NC}"
+else
+	echo -e "${RED}FAIL: Key still in allowed list after revoke. Found $KEY_COUNT, expected 1.${NC}"
+	fail_test
+fi
+
+# Test SSH with the revoked key (should fail now)
+if ssh -i "$NEW_KEY_DIR/id_ed25519_new" -p 2222 -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -o BatchMode=yes -o PreferredAuthentications=publickey localhost 2>&1; then
+	echo -e "${RED}FAIL: SSH with revoked key succeeded (should have failed).${NC}"
+	fail_test
+else
+	echo -e "${GREEN}PASS: SSH with revoked key was denied.${NC}"
 fi
 
 "$ENV_SCRIPT" --stop-wintermutt

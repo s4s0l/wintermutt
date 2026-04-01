@@ -5,7 +5,49 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"log/slog"
 )
+
+var (
+	logger    *slog.Logger
+	logLevel  string
+	logFormat string
+)
+
+func init() {
+	flag.StringVar(&logLevel, "log-level", "info", "Log level: debug, info, warn, error")
+	flag.StringVar(&logFormat, "log-format", "text", "Log format: text, json")
+}
+
+func InitLogger() error {
+	level := &slog.LevelVar{}
+	switch logLevel {
+	case "debug":
+		level.Set(slog.LevelDebug)
+	case "info":
+		level.Set(slog.LevelInfo)
+	case "warn":
+		level.Set(slog.LevelWarn)
+	case "error":
+		level.Set(slog.LevelError)
+	default:
+		return fmt.Errorf("invalid log level: %s", logLevel)
+	}
+
+	var handler slog.Handler
+	switch logFormat {
+	case "json":
+		handler = slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: level})
+	case "text":
+		handler = slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})
+	default:
+		return fmt.Errorf("invalid log format: %s", logFormat)
+	}
+
+	logger = slog.New(handler)
+	return nil
+}
 
 type Config struct {
 	ListenAddr      string

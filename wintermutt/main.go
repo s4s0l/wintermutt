@@ -122,7 +122,7 @@ func runCLI(cfg *Config) error {
 
 	if cfg.Operation != "list-allowed" {
 		publicKey := ""
-		if cfg.SecretPath == "" {
+		if cfg.Operation != "set-shared" && cfg.Operation != "rm-shared" && cfg.SecretPath == "" {
 			publicKey, err = readPublicKeyFile(cfg.PublicKeyFile)
 			if err != nil {
 				return fmt.Errorf("failed to read public key: %w", err)
@@ -134,6 +134,10 @@ func runCLI(cfg *Config) error {
 			return cliSet(cfg, vaultClient, publicKey)
 		case "rm":
 			return cliRm(cfg, vaultClient, publicKey)
+		case "set-shared":
+			return cliSetShared(cfg, vaultClient)
+		case "rm-shared":
+			return cliRmShared(cfg, vaultClient)
 		case "allow":
 			return cliAllow(cfg, vaultClient, publicKey)
 		case "revoke":

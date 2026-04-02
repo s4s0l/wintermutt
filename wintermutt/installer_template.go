@@ -13,6 +13,7 @@ var cliInstallScriptTemplate string
 type cliInstallScriptData struct {
 	VaultAddress    string
 	CommonPrefix    string
+	SharedPath      string
 	AllowedKeysPath string
 	ExternalHost    string
 	ExternalPort    string
@@ -27,6 +28,7 @@ func renderCLIInstallScript(cfg *Config) (string, error) {
 	data := cliInstallScriptData{
 		VaultAddress:    cfg.VaultAddress,
 		CommonPrefix:    cfg.CommonPrefix,
+		SharedPath:      cfg.SharedPath,
 		AllowedKeysPath: cfg.AllowedKeysPath,
 		ExternalHost:    cfg.ExternalHost,
 		ExternalPort:    cfg.ExternalPort,

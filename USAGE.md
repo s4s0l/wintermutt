@@ -70,6 +70,7 @@ When running `wintermutt cli`, these common settings can come from config file d
 - `vault_address`
 - `common_prefix`
 - `allowed_keys_path`
+- `shared_path`
 
 Precedence in `cli` mode:
 
@@ -89,4 +90,25 @@ wintermutt:
   vault_address: http://127.0.0.1:8200
   common_prefix: secrets/data/wintermutt
   allowed_keys_path: secrets/data/wintermutt/allowed-keys
+  shared_path: secrets/data/wintermutt/shared
 ```
+
+## Shared secret operations
+
+Set shared secret:
+
+```bash
+echo "my-value" | wintermutt cli set-shared -name my_secret -shared-path secrets/data/wintermutt/shared
+```
+
+Remove shared secret:
+
+```bash
+wintermutt cli rm-shared -name my_secret -shared-path secrets/data/wintermutt/shared
+```
+
+For `set-shared` and `rm-shared`:
+
+- `-public-key` is not allowed
+- `-path` is not allowed
+- `-shared-path` is required (unless provided via config file)

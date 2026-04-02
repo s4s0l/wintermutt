@@ -77,7 +77,7 @@ func ParseFlags(args []string) error {
 }
 
 func isCLIOperation(op string) bool {
-	return op == "set" || op == "rm" || op == "allow" || op == "revoke" || op == "list-allowed"
+	return op == "set" || op == "rm" || op == "set-shared" || op == "rm-shared" || op == "allow" || op == "revoke" || op == "list-allowed"
 }
 
 func CommonHelp() string {

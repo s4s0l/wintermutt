@@ -136,7 +136,7 @@ fi
 # =======================================================================================================
 echo -e "${YELLOW}--- Test Case 5: CLI - List Allowed Keys ---${NC}"
 
-"$ENV_SCRIPT" --start-wintermutt -common-prefix "secrets/data/wintermutt" -allowed-keys-path "secrets/data/wintermutt/allowed-keys" -enable-binary-download -external-host "localhost" -external-port "2222"
+"$ENV_SCRIPT" --start-wintermutt -common-prefix "secrets/data/wintermutt" -shared-path "secrets/data/wintermutt/shared" -allowed-keys-path "secrets/data/wintermutt/allowed-keys" -enable-binary-download -external-host "localhost" -external-port "2222"
 sleep 3
 
 echo "Testing CLI list-allowed..."
@@ -219,6 +219,44 @@ else
 	echo -e "${RED}FAIL: Installed binary failed to run.${NC}"
 	fail_test
 	exit 1
+fi
+
+if grep -q "shared_path: secrets/data/wintermutt/shared" "$CONFIG_FILE_INSTALLED"; then
+	echo -e "${GREEN}PASS: Installer wrote shared_path config default.${NC}"
+else
+	echo -e "${RED}FAIL: Installer config file is missing shared_path.${NC}"
+	fail_test
+	exit 1
+fi
+
+# =======================================================================================================
+echo -e "${YELLOW}--- Test Case 5d: CLI - Set/Rm Shared Secret ---${NC}"
+
+SHARED_SECRET_VALUE="shared-cli-secret-$(date +%s)"
+echo "$SHARED_SECRET_VALUE" | "$ENV_SCRIPT" --cli set-shared -name "cli_shared_secret" -shared-path "secrets/data/wintermutt/shared" 2>&1
+
+sleep 2
+
+RSA_OUTPUT=$("$ENV_SCRIPT" --ssh-rsa)
+echo "$RSA_OUTPUT"
+if echo "$RSA_OUTPUT" | grep -q "cli_shared_secret=\"$SHARED_SECRET_VALUE\""; then
+	echo -e "${GREEN}PASS: CLI set-shared secret was retrievable via SSH.${NC}"
+else
+	echo -e "${RED}FAIL: CLI set-shared secret was not retrievable via SSH.${NC}"
+	fail_test
+fi
+
+"$ENV_SCRIPT" --cli rm-shared -name "cli_shared_secret" -shared-path "secrets/data/wintermutt/shared" 2>&1
+
+sleep 2
+
+RSA_OUTPUT=$("$ENV_SCRIPT" --ssh-rsa)
+echo "$RSA_OUTPUT"
+if ! echo "$RSA_OUTPUT" | grep -q "cli_shared_secret"; then
+	echo -e "${GREEN}PASS: CLI rm-shared deleted shared secret successfully.${NC}"
+else
+	echo -e "${RED}FAIL: Shared secret still exists after rm-shared.${NC}"
+	fail_test
 fi
 
 # =======================================================================================================

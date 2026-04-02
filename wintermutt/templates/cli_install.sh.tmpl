@@ -19,6 +19,9 @@ cat > "$CONFIG_FILE" <<'EOF'
 wintermutt:
   vault_address: {{ .VaultAddress }}
   common_prefix: {{ .CommonPrefix }}
+{{- if .SharedPath }}
+  shared_path: {{ .SharedPath }}
+{{- end }}
 {{- if .AllowedKeysPath }}
   allowed_keys_path: {{ .AllowedKeysPath }}
 {{- end }}

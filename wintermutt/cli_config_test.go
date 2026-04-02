@@ -71,3 +71,45 @@ func TestLoadCLIMissingConfigFileIsNonFatal(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "http://127.0.0.1:8200", cfg.VaultAddress)
 }
+
+func TestLoadCLISharedPathFromConfigFile(t *testing.T) {
+	t.Setenv("WINTERMUTT_CONFIG_FILE", filepath.Join(t.TempDir(), "wintermutt.yml"))
+	require.NoError(t, os.WriteFile(os.Getenv("WINTERMUTT_CONFIG_FILE"), []byte(`wintermutt:
+  vault_address: http://127.0.0.1:8200
+  shared_path: secrets/data/wintermutt/shared
+`), 0o600))
+
+	cfg, err := LoadCLI(&CommonConfig{}, []string{"set-shared", "-name", "api_key"})
+	require.NoError(t, err)
+	assert.Equal(t, "secrets/data/wintermutt/shared", cfg.CliSharedPath)
+}
+
+func TestLoadCLISharedPathArgOverridesConfigFile(t *testing.T) {
+	t.Setenv("WINTERMUTT_CONFIG_FILE", filepath.Join(t.TempDir(), "wintermutt.yml"))
+	require.NoError(t, os.WriteFile(os.Getenv("WINTERMUTT_CONFIG_FILE"), []byte(`wintermutt:
+  vault_address: http://127.0.0.1:8200
+  shared_path: secrets/data/from-config
+`), 0o600))
+
+	cfg, err := LoadCLI(&CommonConfig{}, []string{"set-shared", "-name", "api_key", "-shared-path", "secrets/data/from-arg"})
+	require.NoError(t, err)
+	assert.Equal(t, "secrets/data/from-arg", cfg.CliSharedPath)
+}
+
+func TestLoadCLISharedOpsRequireSharedPath(t *testing.T) {
+	_, err := LoadCLI(&CommonConfig{}, []string{"set-shared", "-vault-address", "http://127.0.0.1:8200", "-name", "api_key"})
+	require.Error(t, err)
+	assert.EqualError(t, err, "-shared-path is required for set-shared operation")
+}
+
+func TestLoadCLISharedOpsRejectPublicKey(t *testing.T) {
+	_, err := LoadCLI(&CommonConfig{}, []string{"rm-shared", "-vault-address", "http://127.0.0.1:8200", "-name", "api_key", "-shared-path", "secrets/data/wintermutt/shared", "-public-key", "id.pub"})
+	require.Error(t, err)
+	assert.EqualError(t, err, "-public-key is not allowed for rm-shared operation")
+}
+
+func TestLoadCLISharedOpsRejectPath(t *testing.T) {
+	_, err := LoadCLI(&CommonConfig{}, []string{"set-shared", "-vault-address", "http://127.0.0.1:8200", "-name", "api_key", "-shared-path", "secrets/data/wintermutt/shared", "-path", "secrets/data/custom"})
+	require.Error(t, err)
+	assert.EqualError(t, err, "-path is not allowed for set-shared operation")
+}

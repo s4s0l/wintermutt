@@ -130,6 +130,31 @@ func cliRm(cfg *Config, vault *Client, publicKey string) error {
 	return nil
 }
 
+func cliSetShared(cfg *Config, vault *Client) error {
+	value, err := readSecretValue()
+	if err != nil {
+		return err
+	}
+
+	err = vault.SetSecret(cfg.CliSharedPath, cfg.SecretName, value)
+	if err != nil {
+		return fmt.Errorf("failed to set shared secret: %w", err)
+	}
+
+	fmt.Printf("Secret %s set successfully\n", cfg.SecretName)
+	return nil
+}
+
+func cliRmShared(cfg *Config, vault *Client) error {
+	err := vault.DeleteSecret(cfg.CliSharedPath, cfg.SecretName)
+	if err != nil {
+		return fmt.Errorf("failed to delete shared secret: %w", err)
+	}
+
+	fmt.Printf("Secret %s deleted successfully\n", cfg.SecretName)
+	return nil
+}
+
 func cliAllow(cfg *Config, vault *Client, publicKey string) error {
 	err := vault.UpdateAllowedKeys(cfg.AllowedKeysPath, publicKey, true)
 	if err != nil {

@@ -193,7 +193,12 @@ wintermutt_start() {
 		-listen-address ":2222" \
 		-storage "$KEYS_DIR" \
 		"${SERVER_ARGS[@]}" >"$SERVER_LOG_FILE" 2>&1 &
-	mkdir -p "$HOME/.ssh"
+	if [[ ! -f "$HOME/.ssh/known_hosts" ]]; then
+	    mkdir -p "$HOME/.ssh"
+	    touch "$HOME/.ssh/known_hosts"
+		chmod 600 "$HOME/.ssh/known_hosts"
+		chmod 700 "$HOME/.ssh"
+	fi
 	ssh-keygen -f "$HOME/.ssh/known_hosts" -R '[localhost]:2222'
 	echo $! >"$SERVER_PID_FILE"
 	echo "Server started with PID $(cat "$SERVER_PID_FILE"). Logs: $SERVER_LOG_FILE"

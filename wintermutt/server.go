@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -56,7 +57,9 @@ func (s *Server) Start() error {
 	sshConfig.AddHostKey(signer)
 
 	sshConfig.PublicKeyCallback = func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
-		if s.cfg.AllowedKeysPath != "" {
+		allowlistConfigured := s.cfg.AllowedKeysPath != ""
+		authorized := true
+		if allowlistConfigured {
 			allowedData, err := s.vault.GetRawSecret(s.cfg.AllowedKeysPath)
 			if err != nil {
 				return nil, fmt.Errorf("failed to fetch allowed keys: %w", err)
@@ -73,27 +76,9 @@ func (s *Server) Start() error {
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse JSON keys: %w", err)
 			}
-			keyStr := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
-			stripped, err := _StripIdPubKey(keyStr)
+			authorized, err = isKeyInAllowlist(key, allowedList)
 			if err != nil {
-				return nil, fmt.Errorf("failed to strip id_pub key: %w", err)
-			}
-			keyStr = *stripped
-			authorized := false
-			for _, a := range allowedList {
-				x, err := _StripIdPubKey(a)
-				if err != nil {
-					fmt.Println(err)
-					return nil, fmt.Errorf("failed to strip id_pub key from allowed list")
-				}
-				if *x == keyStr {
-					authorized = true
-					break
-				}
-			}
-
-			if !authorized {
-				return nil, fmt.Errorf("public key not authorized")
+				return nil, err
 			}
 		}
 
@@ -109,7 +94,9 @@ func (s *Server) Start() error {
 
 		return &ssh.Permissions{
 			Extensions: map[string]string{
-				"fingerprint": fingerprint,
+				"fingerprint":          fingerprint,
+				"key_allowed":          strconv.FormatBool(authorized),
+				"allowlist_configured": strconv.FormatBool(allowlistConfigured),
 			},
 		}, nil
 	}
@@ -147,8 +134,20 @@ func (s *Server) handleConn(conn net.Conn, sshConfig *ssh.ServerConfig) {
 	go ssh.DiscardRequests(reqs)
 
 	var fingerprint string
+	keyAllowed := true
+	allowlistConfigured := false
 	if sshConn.Permissions != nil {
 		fingerprint = sshConn.Permissions.Extensions["fingerprint"]
+		if raw, ok := sshConn.Permissions.Extensions["key_allowed"]; ok {
+			if parsed, err := strconv.ParseBool(raw); err == nil {
+				keyAllowed = parsed
+			}
+		}
+		if raw, ok := sshConn.Permissions.Extensions["allowlist_configured"]; ok {
+			if parsed, err := strconv.ParseBool(raw); err == nil {
+				allowlistConfigured = parsed
+			}
+		}
 	}
 
 	if fingerprint == "" {
@@ -164,7 +163,7 @@ func (s *Server) handleConn(conn net.Conn, sshConfig *ssh.ServerConfig) {
 		wg.Add(1)
 		go func(newCh ssh.NewChannel) {
 			defer wg.Done()
-			s.handleChannel(newCh, fingerprint)
+			s.handleChannel(newCh, fingerprint, keyAllowed, allowlistConfigured)
 		}(ch)
 	}
 
@@ -192,7 +191,7 @@ func formatSecrets(secrets map[string]string) string {
 	return result
 }
 
-func (s *Server) handleChannel(ch ssh.NewChannel, fingerprint string) {
+func (s *Server) handleChannel(ch ssh.NewChannel, fingerprint string, keyAllowed bool, allowlistConfigured bool) {
 	if ch.ChannelType() != "session" {
 		ch.Reject(ssh.UnknownChannelType, "unknown channel type")
 		return
@@ -251,7 +250,7 @@ func (s *Server) handleChannel(ch ssh.NewChannel, fingerprint string) {
 
 handleRequest:
 	if requestType == "exec" {
-		err := s.handleExec(conn, execCommand)
+		err := s.handleExec(conn, execCommand, keyAllowed, allowlistConfigured)
 		if err != nil {
 			logger.Error("Exec command failed", "command", execCommand, "error", err)
 			fmt.Fprintln(conn.Stderr(), err.Error())
@@ -259,6 +258,13 @@ handleRequest:
 		} else {
 			sendExitStatus(conn, 0)
 		}
+		conn.Close()
+		return
+	}
+
+	if allowlistConfigured && !keyAllowed {
+		fmt.Fprintln(conn.Stderr(), "public key not authorized")
+		sendExitStatus(conn, 1)
 		conn.Close()
 		return
 	}
@@ -309,11 +315,14 @@ func parseExecCommand(payload []byte) (string, error) {
 	return req.Command, nil
 }
 
-func (s *Server) handleExec(ch ssh.Channel, command string) error {
+func (s *Server) handleExec(ch ssh.Channel, command string, keyAllowed bool, allowlistConfigured bool) error {
 	switch command {
 	case "get-binary":
 		if !s.cfg.EnableBinaryDownload {
 			return fmt.Errorf("binary download is disabled; enable with -enable-binary-download")
+		}
+		if !isDownloadAuthorized(s.cfg, keyAllowed, allowlistConfigured) {
+			return fmt.Errorf("public key not authorized")
 		}
 
 		executablePath, err := os.Executable()
@@ -337,6 +346,9 @@ func (s *Server) handleExec(ch ssh.Channel, command string) error {
 		if !s.cfg.EnableBinaryDownload {
 			return fmt.Errorf("binary download is disabled; enable with -enable-binary-download")
 		}
+		if !isDownloadAuthorized(s.cfg, keyAllowed, allowlistConfigured) {
+			return fmt.Errorf("public key not authorized")
+		}
 
 		script, err := renderCLIInstallScript(s.cfg)
 		if err != nil {
@@ -352,6 +364,34 @@ func (s *Server) handleExec(ch ssh.Channel, command string) error {
 	default:
 		return fmt.Errorf("unsupported command: %s", command)
 	}
+}
+
+func isDownloadAuthorized(cfg *Config, keyAllowed bool, allowlistConfigured bool) bool {
+	if cfg.DisallowDownloadByAnybody && allowlistConfigured && !keyAllowed {
+		return false
+	}
+	return true
+}
+
+func isKeyInAllowlist(key ssh.PublicKey, allowedList []string) (bool, error) {
+	keyStr := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key)))
+	stripped, err := _StripIdPubKey(keyStr)
+	if err != nil {
+		return false, fmt.Errorf("failed to strip id_pub key: %w", err)
+	}
+	keyStr = *stripped
+
+	for _, a := range allowedList {
+		x, err := _StripIdPubKey(a)
+		if err != nil {
+			return false, fmt.Errorf("failed to strip id_pub key from allowed list")
+		}
+		if *x == keyStr {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 func sendExitStatus(ch ssh.Channel, status uint32) {

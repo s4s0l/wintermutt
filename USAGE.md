@@ -67,6 +67,11 @@ Both require server flag:
 
 - `-enable-binary-download`
 
+By default, download commands are allowed for any authenticated SSH key, even when `-allowed-keys-path` is configured.
+To require allowlisted keys for downloads, start server with:
+
+- `-disallow-download-by-anybody`
+
 Examples:
 
 ```bash

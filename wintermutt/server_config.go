@@ -6,14 +6,15 @@ import (
 )
 
 type ServerConfig struct {
-	ListenAddr           string
-	AppRoleID            string
-	SecretIDFile         string
-	SharedPath           string
-	StoragePath          string
-	EnableBinaryDownload bool
-	ExternalHost         string
-	ExternalPort         string
+	ListenAddr                string
+	AppRoleID                 string
+	SecretIDFile              string
+	SharedPath                string
+	StoragePath               string
+	EnableBinaryDownload      bool
+	DisallowDownloadByAnybody bool
+	ExternalHost              string
+	ExternalPort              string
 }
 
 var serverCfg ServerConfig
@@ -25,6 +26,7 @@ func init() {
 	flag.StringVar(&serverCfg.SharedPath, "shared-path", "", "A path in Vault to read shared secrets from")
 	flag.StringVar(&serverCfg.StoragePath, "storage", ".", "Directory to store the server host key")
 	flag.BoolVar(&serverCfg.EnableBinaryDownload, "enable-binary-download", false, "Allow authenticated SSH clients to use 'get-binary' and 'cli-install'")
+	flag.BoolVar(&serverCfg.DisallowDownloadByAnybody, "disallow-download-by-anybody", false, "Require download commands to use an allowed key when -allowed-keys-path is configured")
 	flag.StringVar(&serverCfg.ExternalHost, "external-host", "", "Public SSH host used by generated cli-install script")
 	flag.StringVar(&serverCfg.ExternalPort, "external-port", "", "Public SSH port used by generated cli-install script")
 }
@@ -53,6 +55,9 @@ func LoadServer(common *CommonConfig) (*Config, error) {
 	if cfg.ExternalPort == "" {
 		return nil, fmt.Errorf("-external-port is required")
 	}
+	if cfg.DisallowDownloadByAnybody && cfg.AllowedKeysPath == "" {
+		return nil, fmt.Errorf("-allowed-keys-path is required when -disallow-download-by-anybody is set")
+	}
 
 	return cfg, nil
 }
@@ -69,6 +74,7 @@ Options:
   -shared-path string      A path in Vault to read shared secrets from
   -storage string          Directory to store the server host key (default: .)
   -enable-binary-download  Allow authenticated SSH clients to use 'get-binary' and 'cli-install'
+  -disallow-download-by-anybody Require download commands to use an allowed key when -allowed-keys-path is configured
   -external-host string    Public SSH host used by generated cli-install script (required)
   -external-port string    Public SSH port used by generated cli-install script (required)
   -allowed-keys-path string Path to Vault secret containing JSON list of allowed keys

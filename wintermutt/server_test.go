@@ -50,15 +50,29 @@ func TestParseExecCommand(t *testing.T) {
 func TestHandleExecRejectsUnsupportedCommand(t *testing.T) {
 	srv := &Server{cfg: &Config{ServerConfig: ServerConfig{EnableBinaryDownload: true}}}
 
-	err := srv.handleExec(nil, "unknown")
+	err := srv.handleExec(nil, "unknown", true, false)
 	assert.EqualError(t, err, "unsupported command: unknown")
 }
 
 func TestHandleExecRejectsWhenDisabled(t *testing.T) {
 	srv := &Server{cfg: &Config{ServerConfig: ServerConfig{EnableBinaryDownload: false}}}
 
-	err := srv.handleExec(nil, "get-binary")
+	err := srv.handleExec(nil, "get-binary", true, false)
 	assert.EqualError(t, err, "binary download is disabled; enable with -enable-binary-download")
+}
+
+func TestHandleExecRejectsDownloadForDisallowedKeyWhenConfigured(t *testing.T) {
+	srv := &Server{cfg: &Config{ServerConfig: ServerConfig{EnableBinaryDownload: true, DisallowDownloadByAnybody: true}}}
+
+	err := srv.handleExec(nil, "get-binary", false, true)
+	assert.EqualError(t, err, "public key not authorized")
+}
+
+func TestIsDownloadAuthorized(t *testing.T) {
+	assert.True(t, isDownloadAuthorized(&Config{ServerConfig: ServerConfig{DisallowDownloadByAnybody: false}}, false, true))
+	assert.True(t, isDownloadAuthorized(&Config{ServerConfig: ServerConfig{DisallowDownloadByAnybody: true}}, true, true))
+	assert.False(t, isDownloadAuthorized(&Config{ServerConfig: ServerConfig{DisallowDownloadByAnybody: true}}, false, true))
+	assert.True(t, isDownloadAuthorized(&Config{ServerConfig: ServerConfig{DisallowDownloadByAnybody: true}}, false, false))
 }
 
 func TestRenderCLIInstallScriptIncludesServerSettings(t *testing.T) {

@@ -229,6 +229,29 @@ else
 	exit 1
 fi
 
+echo "Testing unauthorized key can still download by default..."
+if ssh -T -i "$DIR/../build/test_keys/id_rsa_unauthorized" -p 2222 -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -o BatchMode=yes -o PreferredAuthentications=publickey localhost get-binary > "$INSTALL_HOME/unauth.bin"; then
+	echo -e "${GREEN}PASS: Unauthorized key can download binary by default.${NC}"
+else
+	echo -e "${RED}FAIL: Unauthorized key could not download binary by default.${NC}"
+	fail_test
+	exit 1
+fi
+
+echo "Restarting server with -disallow-download-by-anybody..."
+"$ENV_SCRIPT" --stop-wintermutt
+"$ENV_SCRIPT" --start-wintermutt -common-prefix "secrets/data/wintermutt" -shared-path "secrets/data/wintermutt/shared" -allowed-keys-path "secrets/data/wintermutt/allowed-keys" -enable-binary-download -external-host "localhost" -external-port "2222" -disallow-download-by-anybody
+sleep 3
+
+echo "Testing unauthorized key download is denied when disallow flag is set..."
+if ssh -T -i "$DIR/../build/test_keys/id_rsa_unauthorized" -p 2222 -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -o BatchMode=yes -o PreferredAuthentications=publickey localhost get-binary > "$INSTALL_HOME/unauth.bin" 2>&1; then
+	echo -e "${RED}FAIL: Unauthorized key download succeeded with disallow flag.${NC}"
+	fail_test
+	exit 1
+else
+	echo -e "${GREEN}PASS: Unauthorized key download denied with disallow flag.${NC}"
+fi
+
 # =======================================================================================================
 echo -e "${YELLOW}--- Test Case 5d: CLI - Set/Rm Shared Secret ---${NC}"
 

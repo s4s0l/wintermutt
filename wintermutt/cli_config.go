@@ -3,7 +3,12 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 type CliConfig struct {
@@ -24,23 +29,53 @@ func init() {
 	flag.StringVar(&cliCfg.SecretPath, "path", "", "Override the secret path in Vault (skips fingerprint derivation)")
 }
 
-func parseCLIArgs(args []string) ([]string, error) {
+type cliFileConfig struct {
+	Wintermutt *struct {
+		VaultAddress    string `yaml:"vault_address"`
+		CommonPrefix    string `yaml:"common_prefix"`
+		AllowedKeysPath string `yaml:"allowed_keys_path"`
+	} `yaml:"wintermutt"`
+}
+
+func parseCLIArgs(commonDefaults *CommonConfig, args []string) (*Config, map[string]bool, []string, error) {
+	common := *commonDefaults
+	cli := cliCfg
+
+	fs := flag.NewFlagSet("cli", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	fs.StringVar(&common.VaultAddress, "vault-address", common.VaultAddress, "Address of the HashiCorp Vault server")
+	fs.StringVar(&common.CommonPrefix, "common-prefix", common.CommonPrefix, "Common prefix for secrets in Vault")
+	fs.StringVar(&common.AllowedKeysPath, "allowed-keys-path", common.AllowedKeysPath, "Path to Vault secret containing JSON list of allowed keys")
+	fs.StringVar(&cli.VaultTokenFile, "vault-token-file", cli.VaultTokenFile, "Path to file containing Vault token")
+	fs.StringVar(&cli.PublicKeyFile, "public-key", cli.PublicKeyFile, "Path to public key file")
+	fs.StringVar(&cli.Operation, "op", cli.Operation, "CLI operation: 'set', 'rm', 'allow', 'revoke', 'list-allowed'")
+	fs.StringVar(&cli.SecretName, "name", cli.SecretName, "Name of the secret (for set/rm)")
+	fs.StringVar(&cli.SecretPath, "path", cli.SecretPath, "Override the secret path in Vault (skips fingerprint derivation)")
+	fs.StringVar(&logLevel, "log-level", logLevel, "Log level: debug, info, warn, error")
+	fs.StringVar(&logFormat, "log-format", logFormat, "Log format: text, json")
+
 	var positionalArgs []string
 
 	i := 0
 	for i < len(args) {
 		arg := args[i]
 		if strings.HasPrefix(arg, "-") {
-			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
-				err := flag.CommandLine.Parse([]string{arg, args[i+1]})
+			if strings.Contains(arg, "=") {
+				err := fs.Parse([]string{arg})
 				if err != nil {
-					return nil, fmt.Errorf("failed to parse flag %s: %w", arg, err)
+					return nil, nil, nil, fmt.Errorf("failed to parse flag %s: %w", arg, err)
+				}
+				i++
+			} else if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				err := fs.Parse([]string{arg, args[i+1]})
+				if err != nil {
+					return nil, nil, nil, fmt.Errorf("failed to parse flag %s: %w", arg, err)
 				}
 				i += 2
 			} else {
-				err := flag.CommandLine.Parse([]string{arg})
+				err := fs.Parse([]string{arg})
 				if err != nil {
-					return nil, fmt.Errorf("failed to parse flag %s: %w", arg, err)
+					return nil, nil, nil, fmt.Errorf("failed to parse flag %s: %w", arg, err)
 				}
 				i++
 			}
@@ -50,26 +85,76 @@ func parseCLIArgs(args []string) ([]string, error) {
 		}
 	}
 
-	if i < len(args) {
-		err := flag.CommandLine.Parse(args[i:])
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse remaining flags: %w", err)
-		}
+	flagsSet := make(map[string]bool)
+	fs.Visit(func(f *flag.Flag) {
+		flagsSet[f.Name] = true
+	})
+
+	cfg := &Config{
+		CommonConfig: common,
+		CliConfig:    cli,
 	}
 
-	positionalArgs = append(positionalArgs, flag.Args()...)
-	return positionalArgs, nil
+	return cfg, flagsSet, positionalArgs, nil
+}
+
+func configFilePath() (string, error) {
+	if custom := strings.TrimSpace(os.Getenv("WINTERMUTT_CONFIG_FILE")); custom != "" {
+		return custom, nil
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve home directory: %w", err)
+	}
+
+	return filepath.Join(home, ".config", "wintermutt", "wintermutt.yml"), nil
+}
+
+func applyCLIConfigFileDefaults(cfg *Config, flagsSet map[string]bool) error {
+	path, err := configFilePath()
+	if err != nil {
+		return err
+	}
+
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to read config file %s: %w", path, err)
+	}
+
+	var fileCfg cliFileConfig
+	if err := yaml.Unmarshal(contents, &fileCfg); err != nil {
+		return fmt.Errorf("failed to parse config file %s: %w", path, err)
+	}
+
+	if fileCfg.Wintermutt == nil {
+		return fmt.Errorf("config file %s must contain root key 'wintermutt'", path)
+	}
+
+	if !flagsSet["vault-address"] && cfg.VaultAddress == "" {
+		cfg.VaultAddress = strings.TrimSpace(fileCfg.Wintermutt.VaultAddress)
+	}
+	if !flagsSet["common-prefix"] && cfg.CommonPrefix == "" {
+		cfg.CommonPrefix = strings.TrimSpace(fileCfg.Wintermutt.CommonPrefix)
+	}
+	if !flagsSet["allowed-keys-path"] && cfg.AllowedKeysPath == "" {
+		cfg.AllowedKeysPath = strings.TrimSpace(fileCfg.Wintermutt.AllowedKeysPath)
+	}
+
+	return nil
 }
 
 func LoadCLI(common *CommonConfig, args []string) (*Config, error) {
-	positionalArgs, err := parseCLIArgs(args)
+	cfg, flagsSet, positionalArgs, err := parseCLIArgs(common, args)
 	if err != nil {
 		return nil, err
 	}
 
-	cfg := &Config{
-		CommonConfig: *common,
-		CliConfig:    cliCfg,
+	if err := applyCLIConfigFileDefaults(cfg, flagsSet); err != nil {
+		return nil, err
 	}
 
 	if len(positionalArgs) >= 1 {
@@ -134,6 +219,15 @@ Options:
   -op string              CLI operation (set, rm, allow, revoke, list-allowed)
   -name string            Name of the secret (for set/rm)
   -path string            Override the secret path in Vault
+
+Config file defaults (cli mode):
+  - uses WINTERMUTT_CONFIG_FILE when set
+  - otherwise uses ~/.config/wintermutt/wintermutt.yml when present
+  - expected YAML format:
+      wintermutt:
+        vault_address: http://127.0.0.1:8200
+        common_prefix: secrets/data/wintermutt
+        allowed_keys_path: secrets/data/wintermutt/allowed-keys
 
 Common Options (also available in serve mode):
   -log-level string       Log level: debug, info, warn, error (default: info)

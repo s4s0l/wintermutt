@@ -24,13 +24,13 @@ func main() {
 
 	common := LoadCommon()
 
-	if err := ParseFlags(args); err != nil {
-		logger.Error("Failed to parse flags", "error", err)
-		os.Exit(1)
-	}
-
 	switch mode {
 	case "serve":
+		if err := ParseFlags(args); err != nil {
+			logger.Error("Failed to parse flags", "error", err)
+			os.Exit(1)
+		}
+
 		cfg, err := LoadServer(common)
 		if err != nil {
 			logger.Error("Failed to load server config", "error", err)

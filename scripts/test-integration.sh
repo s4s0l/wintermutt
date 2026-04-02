@@ -151,6 +151,28 @@ else
 fi
 
 # =======================================================================================================
+echo -e "${YELLOW}--- Test Case 5b: CLI Config File Defaults ---${NC}"
+
+CONFIG_FILE="$DIR/../build/test_keys/wintermutt.yml"
+cat > "$CONFIG_FILE" <<EOF
+wintermutt:
+  vault_address: http://127.0.0.1:8200
+  common_prefix: secrets/data/wintermutt
+  allowed_keys_path: secrets/data/wintermutt/allowed-keys
+EOF
+
+echo "Testing CLI list-allowed using config defaults..."
+CONFIG_LIST_OUTPUT=$(WINTERMUTT_CONFIG_FILE="$CONFIG_FILE" "$DIR/../build/server" cli -vault-token-file "$DIR/../build/test_keys/test_vault_token" list-allowed 2>&1)
+echo "$CONFIG_LIST_OUTPUT"
+if echo "$CONFIG_LIST_OUTPUT" | grep -q "ssh-rsa" && echo "$CONFIG_LIST_OUTPUT" | grep -q "ssh-ed25519"; then
+	echo -e "${GREEN}PASS: CLI loaded common settings from config file defaults.${NC}"
+else
+	echo -e "${RED}FAIL: CLI config file defaults did not work as expected.${NC}"
+	fail_test
+	exit 1
+fi
+
+# =======================================================================================================
 echo -e "${YELLOW}--- Test Case 6: CLI - Set Secret and Retrieve via SSH ---${NC}"
 
 # Use CLI to set a new secret for the RSA key

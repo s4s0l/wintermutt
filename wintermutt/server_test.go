@@ -1,8 +1,10 @@
 package main
 
 import (
-	"github.com/stretchr/testify/assert"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"golang.org/x/crypto/ssh"
 )
 
 func TestMergeSecrets(t *testing.T) {
@@ -33,4 +35,28 @@ func TestFormatSecrets(t *testing.T) {
 	// Since maps are unordered, we check for presence
 	assert.Contains(t, formatted, "export SECRET1=\"val1\"\n")
 	assert.Contains(t, formatted, "export SECRET2=\"val2\"\n")
+}
+
+func TestParseExecCommand(t *testing.T) {
+	payload := ssh.Marshal(struct {
+		Command string
+	}{Command: "get-binary"})
+
+	cmd, err := parseExecCommand(payload)
+	assert.NoError(t, err)
+	assert.Equal(t, "get-binary", cmd)
+}
+
+func TestHandleExecRejectsUnsupportedCommand(t *testing.T) {
+	srv := &Server{cfg: &Config{ServerConfig: ServerConfig{EnableBinaryDownload: true}}}
+
+	err := srv.handleExec(nil, "unknown")
+	assert.EqualError(t, err, "unsupported command: unknown")
+}
+
+func TestHandleExecRejectsWhenDisabled(t *testing.T) {
+	srv := &Server{cfg: &Config{ServerConfig: ServerConfig{EnableBinaryDownload: false}}}
+
+	err := srv.handleExec(nil, "get-binary")
+	assert.EqualError(t, err, "binary download is disabled; enable with -enable-binary-download")
 }

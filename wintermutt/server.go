@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"os"
 	"path"
 	"strings"
 	"sync"
@@ -203,19 +205,63 @@ func (s *Server) handleChannel(ch ssh.NewChannel, fingerprint string) {
 	}
 
 	hasPty := false
-	go func() {
-		for req := range reqs {
-			switch req.Type {
-			case "shell":
-				req.Reply(true, nil)
-			case "pty-req":
-				hasPty = true
-				req.Reply(true, nil)
-			default:
+	requestType := ""
+	execCommand := ""
+
+	for req := range reqs {
+		switch req.Type {
+		case "pty-req":
+			hasPty = true
+			req.Reply(true, nil)
+		case "shell":
+			requestType = "shell"
+			req.Reply(true, nil)
+			goto handleRequest
+		case "exec":
+			cmd, err := parseExecCommand(req.Payload)
+			if err != nil {
 				req.Reply(false, nil)
+				fmt.Fprintln(conn.Stderr(), "invalid exec payload")
+				sendExitStatus(conn, 1)
+				conn.Close()
+				return
 			}
+
+			execCommand = strings.TrimSpace(cmd)
+			if execCommand == "" {
+				req.Reply(false, nil)
+				fmt.Fprintln(conn.Stderr(), "empty exec command")
+				sendExitStatus(conn, 1)
+				conn.Close()
+				return
+			}
+
+			requestType = "exec"
+			req.Reply(true, nil)
+			goto handleRequest
+		default:
+			req.Reply(false, nil)
 		}
-	}()
+	}
+
+	fmt.Fprintln(conn.Stderr(), "no shell or exec request received")
+	sendExitStatus(conn, 1)
+	conn.Close()
+	return
+
+handleRequest:
+	if requestType == "exec" {
+		err := s.handleExec(conn, execCommand)
+		if err != nil {
+			logger.Error("Exec command failed", "command", execCommand, "error", err)
+			fmt.Fprintln(conn.Stderr(), err.Error())
+			sendExitStatus(conn, 1)
+		} else {
+			sendExitStatus(conn, 0)
+		}
+		conn.Close()
+		return
+	}
 
 	// Fetch secrets from Vault
 	commonPath := path.Join(s.cfg.CommonPrefix, fingerprint)
@@ -248,10 +294,50 @@ func (s *Server) handleChannel(ch ssh.NewChannel, fingerprint string) {
 	}
 	fmt.Fprint(conn, output)
 
-	// Send exit status 0
-	_, _ = conn.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{0}))
+	sendExitStatus(conn, 0)
 
 	conn.Close()
+}
+
+func parseExecCommand(payload []byte) (string, error) {
+	var req struct {
+		Command string
+	}
+	if err := ssh.Unmarshal(payload, &req); err != nil {
+		return "", fmt.Errorf("failed to decode exec payload: %w", err)
+	}
+	return req.Command, nil
+}
+
+func (s *Server) handleExec(ch ssh.Channel, command string) error {
+	if command != "get-binary" {
+		return fmt.Errorf("unsupported command: %s", command)
+	}
+
+	if !s.cfg.EnableBinaryDownload {
+		return fmt.Errorf("binary download is disabled; enable with -enable-binary-download")
+	}
+
+	executablePath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("failed to resolve running binary path: %w", err)
+	}
+
+	file, err := os.Open(executablePath)
+	if err != nil {
+		return fmt.Errorf("failed to open running binary: %w", err)
+	}
+	defer file.Close()
+
+	if _, err := io.Copy(ch, file); err != nil {
+		return fmt.Errorf("failed to stream binary: %w", err)
+	}
+
+	return nil
+}
+
+func sendExitStatus(ch ssh.Channel, status uint32) {
+	_, _ = ch.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{status}))
 }
 
 func (s *Server) Stop() {

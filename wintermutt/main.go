@@ -13,48 +13,105 @@ func main() {
 		os.Exit(1)
 	}
 
-	cfg, err := Load()
-	if err != nil {
-		logger.Error("Failed to load config", "error", err)
+	args := os.Args[1:]
+	if len(args) == 0 {
+		printHelp("")
 		os.Exit(1)
 	}
 
-	if cfg.Mode == "cli" {
+	mode := args[0]
+	args = args[1:]
+
+	common := LoadCommon()
+
+	if err := ParseFlags(args); err != nil {
+		logger.Error("Failed to parse flags", "error", err)
+		os.Exit(1)
+	}
+
+	switch mode {
+	case "serve":
+		cfg, err := LoadServer(common)
+		if err != nil {
+			logger.Error("Failed to load server config", "error", err)
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			fmt.Fprint(os.Stderr, ServerHelp())
+			os.Exit(1)
+		}
+
+		vaultClient, err := NewClient(cfg.VaultAddress, cfg.AppRoleID, cfg.SecretIDFile)
+		if err != nil {
+			logger.Error("Failed to initialize Vault client", "error", err)
+			os.Exit(1)
+		}
+
+		srv, err := New(cfg, vaultClient)
+		if err != nil {
+			logger.Error("Failed to create server", "error", err)
+			os.Exit(1)
+		}
+
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+		go func() {
+			<-sigChan
+			logger.Info("Shutting down...")
+			srv.Stop()
+		}()
+
+		logger.Info("SSH server listening", "address", cfg.ListenAddr)
+		if err := srv.Start(); err != nil {
+			logger.Error("Server error", "error", err)
+			os.Exit(1)
+		}
+
+		fmt.Println("Server stopped")
+
+	case "cli":
+		cfg, err := LoadCLI(common, args)
+		if err != nil {
+			logger.Error("Failed to load CLI config", "error", err)
+			fmt.Fprintln(os.Stderr, "Error:", err)
+			fmt.Fprint(os.Stderr, CLIHelp())
+			os.Exit(1)
+		}
+
 		if err := runCLI(cfg); err != nil {
 			logger.Error("CLI error", "error", err)
 			os.Exit(1)
 		}
-		return
-	}
 
-	vaultClient, err := NewClient(cfg.VaultAddress, cfg.AppRoleID, cfg.SecretIDFile)
-	if err != nil {
-		logger.Error("Failed to initialize Vault client", "error", err)
+	case "help":
+		if len(args) > 0 {
+			printHelp(args[0])
+		} else {
+			printHelp("")
+		}
+		os.Exit(0)
+
+	default:
+		printHelp("")
 		os.Exit(1)
 	}
+}
 
-	srv, err := New(cfg, vaultClient)
-	if err != nil {
-		logger.Error("Failed to create server", "error", err)
-		os.Exit(1)
+func printHelp(mode string) {
+	fmt.Println("wintermutt - SSH server that exposes secrets from Vault")
+	fmt.Println("")
+	fmt.Println("Usage:")
+	fmt.Println("  wintermutt serve [options]    Run the SSH server")
+	fmt.Println("  wintermutt cli [options]     Run CLI operations")
+	fmt.Println("  wintermutt help [serve|cli]  Show help for a specific mode")
+	fmt.Println("")
+
+	if mode == "serve" {
+		fmt.Print(ServerHelp())
+	} else if mode == "cli" {
+		fmt.Print(CLIHelp())
+	} else {
+		fmt.Print("Run 'wintermutt help serve' or 'wintermutt help cli' for more details.\n")
 	}
-
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	go func() {
-		<-sigChan
-		logger.Info("Shutting down...")
-		srv.Stop()
-	}()
-
-	logger.Info("SSH server listening", "address", cfg.ListenAddr)
-	if err := srv.Start(); err != nil {
-		logger.Error("Server error", "error", err)
-		os.Exit(1)
-	}
-
-	fmt.Println("Server stopped")
 }
 
 func runCLI(cfg *Config) error {

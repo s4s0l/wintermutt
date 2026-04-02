@@ -182,8 +182,9 @@ wintermutt_start() {
 	SERVER_ARGS=("$@") # $@ will capture all arguments passed after --start-wintermutt
 
 	echo "Starting wintermutt server in background (Vault at $V_ADDR)..."
-	"$SERVER_BIN" \
+	"$SERVER_BIN" serve \
 		-vault-address "$V_ADDR" \
+		-enable-binary-download \
 		-app-role-id "$(cat "$KEYS_DIR/test_role_id")" \
 		-secret-id-file "$KEYS_DIR/test_secret_id" \
 		-common-prefix "secrets/data/wintermutt" \
@@ -264,7 +265,7 @@ wintermutt_cli() {
 	CLI_ARGS=("$@") # $@ will capture all arguments passed after --cli
 
 	echo "Running wintermutt CLI (Vault at $VAULT_ADDR)..."
-	"$CLI_BIN" -vault-address "$VAULT_ADDR" -vault-token-file "$VAULT_TOKEN_FILE" "${CLI_ARGS[@]}"
+	"$CLI_BIN" cli -vault-address "$VAULT_ADDR" -vault-token-file "$VAULT_TOKEN_FILE" "${CLI_ARGS[@]}"
 }
 
 case "$1" in

@@ -84,12 +84,17 @@ func isTerminal(f *os.File) bool {
 }
 
 func cliSet(cfg *Config, vault *Client, publicKey string) error {
-	fingerprint, err := deriveFingerprint(publicKey)
-	if err != nil {
-		return fmt.Errorf("failed to derive fingerprint: %w", err)
+	var secretPath string
+	if cfg.SecretPath != "" {
+		secretPath = cfg.SecretPath
+	} else {
+		fingerprint, err := deriveFingerprint(publicKey)
+		if err != nil {
+			return fmt.Errorf("failed to derive fingerprint: %w", err)
+		}
+		secretPath = path.Join(cfg.CommonPrefix, fingerprint)
 	}
 
-	secretPath := path.Join(cfg.CommonPrefix, fingerprint)
 	value, err := readSecretValue()
 	if err != nil {
 		return err
@@ -105,13 +110,18 @@ func cliSet(cfg *Config, vault *Client, publicKey string) error {
 }
 
 func cliRm(cfg *Config, vault *Client, publicKey string) error {
-	fingerprint, err := deriveFingerprint(publicKey)
-	if err != nil {
-		return fmt.Errorf("failed to derive fingerprint: %w", err)
+	var secretPath string
+	if cfg.SecretPath != "" {
+		secretPath = cfg.SecretPath
+	} else {
+		fingerprint, err := deriveFingerprint(publicKey)
+		if err != nil {
+			return fmt.Errorf("failed to derive fingerprint: %w", err)
+		}
+		secretPath = path.Join(cfg.CommonPrefix, fingerprint)
 	}
 
-	secretPath := path.Join(cfg.CommonPrefix, fingerprint)
-	err = vault.DeleteSecret(secretPath, cfg.SecretName)
+	err := vault.DeleteSecret(secretPath, cfg.SecretName)
 	if err != nil {
 		return fmt.Errorf("failed to delete secret: %w", err)
 	}

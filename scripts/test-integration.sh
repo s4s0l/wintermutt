@@ -14,6 +14,13 @@ YELLOW='\033[0;33m'
 echo -e "${BLUE}=== Cleaning up environment ===${NC}"
 "$ENV_SCRIPT" --stop-wintermutt
 "$ENV_SCRIPT" --stop-vault
+# Kill any lingering processes that might hold port 2222
+if command -v fuser >/dev/null 2>&1; then
+	fuser -k 2222/tcp 2>/dev/null || true
+	sleep 2
+fi
+pkill -f "build/server" 2>/dev/null || true
+sleep 1
 
 echo -e "${BLUE}=== Building project ===${NC}"
 (cd "$DIR/.." && just build)
@@ -274,6 +281,52 @@ else
 fi
 
 "$ENV_SCRIPT" --stop-wintermutt
+
+# =======================================================================================================
+echo -e "${YELLOW}--- Test Case 10: CLI - Set Secret at Arbitrary Path (-path) ---${NC}"
+
+# Set a secret at an arbitrary path without needing -public-key or -common-prefix
+echo "Testing CLI set with -path flag..."
+ARBITRARY_SECRET_VALUE="arbitrary-path-secret-$(date +%s)"
+SET_OUTPUT=$(echo "$ARBITRARY_SECRET_VALUE" | "$ENV_SCRIPT" --cli set -path "secrets/data/wintermutt/shared" -name "arbitrary_secret" 2>&1)
+echo "$SET_OUTPUT"
+if echo "$SET_OUTPUT" | grep -q "set successfully"; then
+	echo -e "${GREEN}PASS: CLI set with -path flag set secret at arbitrary path.${NC}"
+else
+	echo -e "${RED}FAIL: CLI set with -path failed.${NC}"
+	fail_test
+fi
+
+sleep 2
+
+# Verify RSA client can see the shared secret
+"$ENV_SCRIPT" --start-wintermutt -common-prefix "secrets/data/wintermutt" -shared-path "secrets/data/wintermutt/shared"
+sleep 3
+
+RSA_OUTPUT=$("$ENV_SCRIPT" --ssh-rsa)
+echo "$RSA_OUTPUT"
+if echo "$RSA_OUTPUT" | grep -q "arbitrary_secret"; then
+	echo -e "${GREEN}PASS: Arbitrary path secret retrievable via SSH.${NC}"
+else
+	echo -e "${RED}FAIL: Arbitrary path secret not retrievable via SSH.${NC}"
+	fail_test
+fi
+
+"$ENV_SCRIPT" --stop-wintermutt
+
+# =======================================================================================================
+echo -e "${YELLOW}--- Test Case 11: CLI - Delete Secret at Arbitrary Path (-path) ---${NC}"
+
+# Delete the secret we just set
+echo "Testing CLI rm with -path flag..."
+RM_OUTPUT=$("$ENV_SCRIPT" --cli rm -path "secrets/data/wintermutt/shared" -name "arbitrary_secret" 2>&1)
+echo "$RM_OUTPUT"
+if echo "$RM_OUTPUT" | grep -q "deleted successfully"; then
+	echo -e "${GREEN}PASS: CLI rm with -path flag deleted secret at arbitrary path.${NC}"
+else
+	echo -e "${RED}FAIL: CLI rm with -path failed.${NC}"
+	fail_test
+fi
 
 echo -e "${GREEN}=== All Integration Tests Passed! ===${NC}"
 "$ENV_SCRIPT" --stop-vault

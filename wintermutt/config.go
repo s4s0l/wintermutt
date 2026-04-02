@@ -61,6 +61,7 @@ type Config struct {
 	Mode            string
 	Operation       string
 	SecretName      string
+	SecretPath      string
 	VaultTokenFile  string
 	PublicKeyFile   string
 }
@@ -81,6 +82,7 @@ func Load() (*Config, error) {
 	flag.StringVar(&cfg.PublicKeyFile, "public-key", "", "Path to public key file (CLI mode)")
 	flag.StringVar(&cfg.Operation, "op", "", "CLI operation: 'set', 'rm', 'allow', 'revoke'")
 	flag.StringVar(&cfg.SecretName, "name", "", "Name of the secret (for set/rm)")
+	flag.StringVar(&cfg.SecretPath, "path", "", "Optional: Override the secret path in Vault (skips fingerprint derivation)")
 
 	// Parse flags manually to handle positional args before flags
 	args := os.Args[1:]
@@ -140,16 +142,16 @@ func Load() (*Config, error) {
 			return nil, fmt.Errorf("invalid CLI operation: %s (must be set, rm, allow, revoke, or list-allowed)", cfg.Operation)
 		}
 		if cfg.Operation != "list-allowed" {
-			if cfg.PublicKeyFile == "" {
-				return nil, fmt.Errorf("-public-key is required for CLI mode")
+			if cfg.PublicKeyFile == "" && cfg.SecretPath == "" {
+				return nil, fmt.Errorf("-public-key is required for CLI mode (unless -path is provided)")
 			}
 		}
 		if cfg.Operation == "set" || cfg.Operation == "rm" {
 			if cfg.SecretName == "" {
 				return nil, fmt.Errorf("-name is required for %s operation", cfg.Operation)
 			}
-			if cfg.CommonPrefix == "" {
-				return nil, fmt.Errorf("-common-prefix is required")
+			if cfg.CommonPrefix == "" && cfg.SecretPath == "" {
+				return nil, fmt.Errorf("-common-prefix or -path is required")
 			}
 		}
 		if cfg.Operation == "allow" || cfg.Operation == "revoke" {

@@ -64,9 +64,12 @@ func runCLI(cfg *Config) error {
 	}
 
 	if cfg.Operation != "list-allowed" {
-		publicKey, err := readPublicKeyFile(cfg.PublicKeyFile)
-		if err != nil {
-			return fmt.Errorf("failed to read public key: %w", err)
+		publicKey := ""
+		if cfg.SecretPath == "" {
+			publicKey, err = readPublicKeyFile(cfg.PublicKeyFile)
+			if err != nil {
+				return fmt.Errorf("failed to read public key: %w", err)
+			}
 		}
 
 		switch cfg.Operation {

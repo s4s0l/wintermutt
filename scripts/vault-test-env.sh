@@ -35,8 +35,13 @@ mkdir -p "$KEYS_DIR"
 
 stop_vault() {
 	echo "Stopping Vault container..."
-	docker stop $CONTAINER_NAME >/dev/null 2>&1 || true
-	docker rm $CONTAINER_NAME >/dev/null 2>&1 || true
+	docker rm -f $CONTAINER_NAME >/dev/null 2>&1 || true
+	for i in $(seq 1 10); do
+		if ! docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+			break
+		fi
+		sleep 1
+	done
 	rm -f "$KEYS_DIR/test_role_id" "$KEYS_DIR/test_secret_id" "$VAULT_TOKEN_FILE"
 	echo "Vault stopped."
 }
@@ -76,6 +81,22 @@ start_vault() {
 		fi
 		NETWORK_ARG="--network $VAULT_NETWORK"
 	fi
+
+	# Aggressively ensure container is gone before starting
+	for attempt in $(seq 1 3); do
+		docker rm -f $CONTAINER_NAME >/dev/null 2>&1 || true
+		# Wait until Docker confirms it's gone
+		while docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; do
+			sleep 1
+		done
+		# Extra wait for Docker daemon to fully clean up
+		sleep 3
+		# Verify it's really gone
+		if ! docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+			break
+		fi
+		echo "Container still exists on attempt $attempt, retrying..."
+	done
 
 	docker run -d \
 		--name $CONTAINER_NAME \
@@ -178,12 +199,25 @@ wintermutt_stop() {
 	if [ -f "$SERVER_PID_FILE" ]; then
 		PID=$(cat "$SERVER_PID_FILE")
 		echo "Stopping wintermutt server (PID $PID)..."
-		kill "$PID" || true
+		kill "$PID" 2>/dev/null || true
 		rm -f "$SERVER_PID_FILE"
+		for i in $(seq 1 10); do
+			if ! kill -0 "$PID" 2>/dev/null; then
+				break
+			fi
+			sleep 1
+		done
+		# Force kill if still running
+		kill -9 "$PID" 2>/dev/null || true
 		echo "Server stopped."
 	else
 		echo "Server PID file not found."
 	fi
+	# Also kill anything on port 2222
+	if command -v fuser >/dev/null 2>&1; then
+		fuser -k 2222/tcp 2>/dev/null || true
+	fi
+	sleep 1
 }
 
 stop_all() {

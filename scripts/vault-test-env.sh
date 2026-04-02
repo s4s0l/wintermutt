@@ -193,7 +193,7 @@ wintermutt_start() {
 		-listen-address ":2222" \
 		-storage "$KEYS_DIR" \
 		"${SERVER_ARGS[@]}" >"$SERVER_LOG_FILE" 2>&1 &
-
+	ssh-keygen -f '/home/ubuntu/.ssh/known_hosts' -R '[localhost]:2222'
 	echo $! >"$SERVER_PID_FILE"
 	echo "Server started with PID $(cat "$SERVER_PID_FILE"). Logs: $SERVER_LOG_FILE"
 }

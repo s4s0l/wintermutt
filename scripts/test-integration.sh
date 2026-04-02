@@ -162,6 +162,7 @@ wintermutt:
 EOF
 
 echo "Testing CLI list-allowed using config defaults..."
+WINTERMUTT_CONFIG_FILE="$CONFIG_FILE" "$DIR/../build/server" cli -vault-token-file "$DIR/../build/test_keys/test_vault_token" list-allowed
 CONFIG_LIST_OUTPUT=$(WINTERMUTT_CONFIG_FILE="$CONFIG_FILE" "$DIR/../build/server" cli -vault-token-file "$DIR/../build/test_keys/test_vault_token" list-allowed 2>&1)
 echo "$CONFIG_LIST_OUTPUT"
 if echo "$CONFIG_LIST_OUTPUT" | grep -q "ssh-rsa" && echo "$CONFIG_LIST_OUTPUT" | grep -q "ssh-ed25519"; then

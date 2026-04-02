@@ -7,13 +7,18 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/hashicorp/vault/api"
 	"github.com/hashicorp/vault/api/auth/approle"
 )
 
 type Client struct {
-	client *api.Client
+	client      *api.Client
+	renewCancel context.CancelFunc
+	renewDone   chan struct{}
+	closeOnce   sync.Once
 }
 
 func NewClient(vaultAddr, roleID, secretIDFile string) (*Client, error) {
@@ -49,7 +54,10 @@ func NewClient(vaultAddr, roleID, secretIDFile string) (*Client, error) {
 		return nil, fmt.Errorf("no auth info returned from Vault login")
 	}
 
-	return &Client{client: client}, nil
+	vaultClient := &Client{client: client}
+	vaultClient.startAppRoleRenewal(roleID, secretIDStr, authInfo)
+
+	return vaultClient, nil
 }
 
 func NewClientWithTokenFile(vaultAddr, tokenFile string) (*Client, error) {
@@ -76,6 +84,117 @@ func NewClientWithTokenFile(vaultAddr, tokenFile string) (*Client, error) {
 	}
 
 	return &Client{client: client}, nil
+}
+
+func (c *Client) Close() {
+	c.closeOnce.Do(func() {
+		if c.renewCancel != nil {
+			c.renewCancel()
+		}
+		if c.renewDone != nil {
+			select {
+			case <-c.renewDone:
+			case <-time.After(2 * time.Second):
+				logger.Warn("Timed out waiting for Vault renewal goroutine to stop")
+			}
+		}
+	})
+}
+
+func (c *Client) startAppRoleRenewal(roleID, secretID string, initialSecret *api.Secret) {
+	ctx, cancel := context.WithCancel(context.Background())
+	c.renewCancel = cancel
+	c.renewDone = make(chan struct{})
+
+	go func() {
+		defer close(c.renewDone)
+		secret := initialSecret
+
+		for {
+			logger.Info("Setting up Vault token lifetime watcher")
+			watcher, err := c.client.NewLifetimeWatcher(&api.LifetimeWatcherInput{Secret: secret})
+			if err != nil {
+				logger.Error("Failed to create Vault token lifetime watcher", "error", err)
+			} else {
+				logger.Info("Starting the reneval watch")
+				go watcher.Start()
+				needsRelogin := false
+				for {
+					select {
+					case <-ctx.Done():
+						logger.Info("Renewal received context stopped")
+						watcher.Stop()
+						return
+					case <-watcher.RenewCh():
+						logger.Info("Vault token renewed successfully")
+						continue
+					case err, ok := <-watcher.DoneCh():
+						if ok && err != nil {
+							logger.Warn("Vault token watcher ended", "error", err)
+						} else {
+							logger.Warn("Vault token watcher ended; re-login required")
+						}
+						watcher.Stop()
+						needsRelogin = true
+					}
+
+					if needsRelogin {
+						break
+					}
+				}
+			}
+
+			// Vault docs advise re-reading the secret when watcher finishes.
+			// For AppRole auth this means performing a fresh login.
+			for {
+				if ctx.Err() != nil {
+					return
+				}
+				logger.Info("Attempting to re-login to Vault with AppRole")
+				newSecret, err := loginWithAppRole(ctx, c.client, roleID, secretID)
+				if err == nil {
+					secret = newSecret
+					break
+				}
+
+				logger.Error("Failed to re-login to Vault with AppRole", "error", err)
+				if !sleepWithContext(ctx, 2*time.Second) {
+					return
+				}
+			}
+		}
+	}()
+}
+
+func loginWithAppRole(ctx context.Context, client *api.Client, roleID, secretID string) (*api.Secret, error) {
+	appRoleAuth, err := approle.NewAppRoleAuth(
+		roleID,
+		&approle.SecretID{FromString: secretID},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize AppRole auth: %w", err)
+	}
+
+	authInfo, err := client.Auth().Login(ctx, appRoleAuth)
+	if err != nil {
+		return nil, fmt.Errorf("failed to login to Vault with AppRole: %w", err)
+	}
+	if authInfo == nil {
+		return nil, fmt.Errorf("no auth info returned from Vault login")
+	}
+
+	return authInfo, nil
+}
+
+func sleepWithContext(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-t.C:
+		return true
+	}
 }
 
 func (c *Client) GetRawSecret(fullPath string) (map[string]interface{}, error) {

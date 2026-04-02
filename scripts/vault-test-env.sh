@@ -128,8 +128,8 @@ EOF"
 
 	v_exec write auth/approle/role/$ROLE_NAME \
 		token_policies="$POLICY_NAME" \
-		token_ttl=1h \
-		token_max_ttl=4h
+		token_ttl=20s \
+		token_max_ttl=2m
 
 	v_exec read -format=json auth/approle/role/$ROLE_NAME/role-id | grep -oE '"role_id": "([^"]+)"' | cut -d'"' -f4 >"$KEYS_DIR/test_role_id"
 	v_exec write -f -format=json auth/approle/role/$ROLE_NAME/secret-id | grep -oE '"secret_id": "([^"]+)"' | cut -d'"' -f4 >"$KEYS_DIR/test_secret_id"
@@ -171,6 +171,11 @@ wintermutt_start() {
 		exit 1
 	fi
 
+	if [ -f "$SERVER_PID_FILE" ]; then
+		echo "Error: Server PID file already exists at $SERVER_PID_FILE. Stop the server first with --stop-wintermutt."
+		exit 1
+	fi
+
 	V_ADDR=$(get_vault_addr)
 	SERVER_BIN="$DIR/../build/server"
 	if [ ! -f "$SERVER_BIN" ]; then
@@ -209,7 +214,6 @@ wintermutt_stop() {
 		PID=$(cat "$SERVER_PID_FILE")
 		echo "Stopping wintermutt server (PID $PID)..."
 		kill "$PID" 2>/dev/null || true
-		rm -f "$SERVER_PID_FILE"
 		for i in $(seq 1 10); do
 			if ! kill -0 "$PID" 2>/dev/null; then
 				break
@@ -222,6 +226,7 @@ wintermutt_stop() {
 	else
 		echo "Server PID file not found."
 	fi
+	rm -f "$SERVER_PID_FILE"
 	# Also kill anything on port 2222
 	if command -v fuser >/dev/null 2>&1; then
 		fuser -k 2222/tcp 2>/dev/null || true

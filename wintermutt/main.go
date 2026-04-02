@@ -44,6 +44,7 @@ func main() {
 			logger.Error("Failed to initialize Vault client", "error", err)
 			os.Exit(1)
 		}
+		defer vaultClient.Close()
 
 		srv, err := New(cfg, vaultClient)
 		if err != nil {

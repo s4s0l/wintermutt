@@ -185,6 +185,8 @@ wintermutt_start() {
 	"$SERVER_BIN" serve \
 		-vault-address "$V_ADDR" \
 		-enable-binary-download \
+		-external-host "localhost" \
+		-external-port "2222" \
 		-app-role-id "$(cat "$KEYS_DIR/test_role_id")" \
 		-secret-id-file "$KEYS_DIR/test_secret_id" \
 		-common-prefix "secrets/data/wintermutt" \

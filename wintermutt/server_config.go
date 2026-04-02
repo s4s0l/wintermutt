@@ -12,6 +12,8 @@ type ServerConfig struct {
 	SharedPath           string
 	StoragePath          string
 	EnableBinaryDownload bool
+	ExternalHost         string
+	ExternalPort         string
 }
 
 var serverCfg ServerConfig
@@ -22,7 +24,9 @@ func init() {
 	flag.StringVar(&serverCfg.SecretIDFile, "secret-id-file", "", "Path to a file containing the AppRole Secret ID")
 	flag.StringVar(&serverCfg.SharedPath, "shared-path", "", "A path in Vault to read shared secrets from")
 	flag.StringVar(&serverCfg.StoragePath, "storage", ".", "Directory to store the server host key")
-	flag.BoolVar(&serverCfg.EnableBinaryDownload, "enable-binary-download", false, "Allow authenticated SSH clients to download the running binary with 'get-binary'")
+	flag.BoolVar(&serverCfg.EnableBinaryDownload, "enable-binary-download", false, "Allow authenticated SSH clients to use 'get-binary' and 'cli-install'")
+	flag.StringVar(&serverCfg.ExternalHost, "external-host", "", "Public SSH host used by generated cli-install script")
+	flag.StringVar(&serverCfg.ExternalPort, "external-port", "", "Public SSH port used by generated cli-install script")
 }
 
 func LoadServer(common *CommonConfig) (*Config, error) {
@@ -43,6 +47,12 @@ func LoadServer(common *CommonConfig) (*Config, error) {
 	if cfg.CommonPrefix == "" {
 		return nil, fmt.Errorf("-common-prefix is required")
 	}
+	if cfg.ExternalHost == "" {
+		return nil, fmt.Errorf("-external-host is required")
+	}
+	if cfg.ExternalPort == "" {
+		return nil, fmt.Errorf("-external-port is required")
+	}
 
 	return cfg, nil
 }
@@ -58,7 +68,9 @@ Options:
   -common-prefix string    Common prefix for secrets in Vault (required)
   -shared-path string      A path in Vault to read shared secrets from
   -storage string          Directory to store the server host key (default: .)
-  -enable-binary-download  Allow authenticated SSH clients to download binary via 'get-binary'
+  -enable-binary-download  Allow authenticated SSH clients to use 'get-binary' and 'cli-install'
+  -external-host string    Public SSH host used by generated cli-install script (required)
+  -external-port string    Public SSH port used by generated cli-install script (required)
   -allowed-keys-path string Path to Vault secret containing JSON list of allowed keys
 
 Common Options (also available in cli mode):

@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+SSH_HOST="{{ .ExternalHost }}"
+SSH_PORT="{{ .ExternalPort }}"
+SSH_IDENTITY_FILE="${WINTERMUTT_INSTALL_IDENTITY_FILE:-}"
+CONFIG_FILE="${WINTERMUTT_CONFIG_FILE:-$HOME/.config/wintermutt/wintermutt.yml}"
+BIN_PATH="${WINTERMUTT_INSTALL_BIN_FILE:-$HOME/.local/bin/wintermutt}"
+
+SSH_TARGET="wintermutt@$SSH_HOST"
+
+CONFIG_DIR="$(dirname "$CONFIG_FILE")"
+BIN_DIR="$(dirname "$BIN_PATH")"
+
+mkdir -p "$CONFIG_DIR" "$BIN_DIR"
+
+cat > "$CONFIG_FILE" <<'EOF'
+wintermutt:
+  vault_address: {{ .VaultAddress }}
+  common_prefix: {{ .CommonPrefix }}
+{{- if .AllowedKeysPath }}
+  allowed_keys_path: {{ .AllowedKeysPath }}
+{{- end }}
+EOF
+
+SSH_ARGS=(-T -p "$SSH_PORT")
+if [ -n "$SSH_IDENTITY_FILE" ]; then
+  SSH_ARGS+=(-i "$SSH_IDENTITY_FILE")
+  SSH_ARGS+=(-o IdentitiesOnly=yes)
+fi
+SSH_ARGS+=(-o StrictHostKeyChecking=no -o BatchMode=yes -o PreferredAuthentications=publickey)
+
+ssh "${SSH_ARGS[@]}" "$SSH_TARGET" get-binary > "$BIN_PATH"
+chmod +x "$BIN_PATH"
+
+echo "Installed wintermutt CLI to $BIN_PATH"
+echo "Wrote config to $CONFIG_FILE"
+echo "Ensure $BIN_DIR is in PATH"

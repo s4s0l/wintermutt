@@ -310,30 +310,48 @@ func parseExecCommand(payload []byte) (string, error) {
 }
 
 func (s *Server) handleExec(ch ssh.Channel, command string) error {
-	if command != "get-binary" {
+	switch command {
+	case "get-binary":
+		if !s.cfg.EnableBinaryDownload {
+			return fmt.Errorf("binary download is disabled; enable with -enable-binary-download")
+		}
+
+		executablePath, err := os.Executable()
+		if err != nil {
+			return fmt.Errorf("failed to resolve running binary path: %w", err)
+		}
+
+		file, err := os.Open(executablePath)
+		if err != nil {
+			return fmt.Errorf("failed to open running binary: %w", err)
+		}
+		defer file.Close()
+
+		if _, err := io.Copy(ch, file); err != nil {
+			return fmt.Errorf("failed to stream binary: %w", err)
+		}
+
+		return nil
+
+	case "cli-install":
+		if !s.cfg.EnableBinaryDownload {
+			return fmt.Errorf("binary download is disabled; enable with -enable-binary-download")
+		}
+
+		script, err := renderCLIInstallScript(s.cfg)
+		if err != nil {
+			return err
+		}
+
+		if _, err := io.WriteString(ch, script); err != nil {
+			return fmt.Errorf("failed to stream installer script: %w", err)
+		}
+
+		return nil
+
+	default:
 		return fmt.Errorf("unsupported command: %s", command)
 	}
-
-	if !s.cfg.EnableBinaryDownload {
-		return fmt.Errorf("binary download is disabled; enable with -enable-binary-download")
-	}
-
-	executablePath, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("failed to resolve running binary path: %w", err)
-	}
-
-	file, err := os.Open(executablePath)
-	if err != nil {
-		return fmt.Errorf("failed to open running binary: %w", err)
-	}
-	defer file.Close()
-
-	if _, err := io.Copy(ch, file); err != nil {
-		return fmt.Errorf("failed to stream binary: %w", err)
-	}
-
-	return nil
 }
 
 func sendExitStatus(ch ssh.Channel, status uint32) {

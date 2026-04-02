@@ -60,3 +60,26 @@ func TestHandleExecRejectsWhenDisabled(t *testing.T) {
 	err := srv.handleExec(nil, "get-binary")
 	assert.EqualError(t, err, "binary download is disabled; enable with -enable-binary-download")
 }
+
+func TestRenderCLIInstallScriptIncludesServerSettings(t *testing.T) {
+	cfg := &Config{CommonConfig: CommonConfig{
+		VaultAddress:    "http://127.0.0.1:8200",
+		CommonPrefix:    "secrets/data/wintermutt",
+		AllowedKeysPath: "secrets/data/wintermutt/allowed-keys",
+	}, ServerConfig: ServerConfig{ExternalHost: "ssh.example.com", ExternalPort: "2222"}}
+
+	script, err := renderCLIInstallScript(cfg)
+	assert.NoError(t, err)
+	assert.Contains(t, script, "vault_address: http://127.0.0.1:8200")
+	assert.Contains(t, script, "common_prefix: secrets/data/wintermutt")
+	assert.Contains(t, script, "allowed_keys_path: secrets/data/wintermutt/allowed-keys")
+	assert.Contains(t, script, "SSH_HOST=\"ssh.example.com\"")
+	assert.Contains(t, script, "ssh.example.com")
+	assert.Contains(t, script, "SSH_PORT=\"2222\"")
+	assert.Contains(t, script, "2222")
+	assert.Contains(t, script, "SSH_TARGET=\"wintermutt@$SSH_HOST\"")
+	assert.Contains(t, script, "WINTERMUTT_CONFIG_FILE")
+	assert.Contains(t, script, "WINTERMUTT_INSTALL_BIN_FILE")
+	assert.Contains(t, script, "WINTERMUTT_INSTALL_IDENTITY_FILE")
+	assert.Contains(t, script, "get-binary")
+}

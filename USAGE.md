@@ -5,16 +5,63 @@
 Start the server with binary download enabled:
 
 ```bash
-wintermutt serve ... -enable-binary-download
+wintermutt serve ... -enable-binary-download -external-host your-host -external-port 2222
 ```
 
 Then download the currently running server binary in one line:
 
 ```bash
-ssh -T -i ~/.ssh/id_ed25519 -p 2222 user@host get-binary > ./wintermutt && chmod +x ./wintermutt
+ssh -T -p 2222 host get-binary > ./wintermutt && chmod +x ./wintermutt
 ```
 
 `-T` disables PTY allocation so the binary stream is not altered.
+
+The server also supports `cli-install`, which returns an installer script via SSH exec.
+
+Server settings for `cli-install` address defaults:
+
+- run server with `-external-host` and `-external-port` (both required)
+- generated script uses these values for downloading `get-binary`
+
+Example (fetch + run installer):
+
+```bash
+ssh -T -p 2222 user@host cli-install | bash
+```
+
+The installer script:
+
+- creates `~/.config/wintermutt/wintermutt.yml` with server defaults
+- downloads the binary to `~/.local/bin/wintermutt` using `get-binary`
+- makes it executable
+
+By default it uses your regular SSH identity flow (agent, yubikey, default keys).
+
+The download is always requested as `wintermutt@<external-host>`.
+
+Config path in the installer respects `WINTERMUTT_CONFIG_FILE`.
+If unset, it writes to `~/.config/wintermutt/wintermutt.yml`.
+
+Binary install path respects `WINTERMUTT_INSTALL_BIN_FILE`.
+If unset, it writes to `~/.local/bin/wintermutt`.
+
+Example overriding config path:
+
+```bash
+WINTERMUTT_CONFIG_FILE=./wintermutt.yml ssh -T -p 2222 user@host cli-install | bash
+```
+
+Example overriding both config and binary output paths:
+
+```bash
+WINTERMUTT_CONFIG_FILE=./wintermutt.yml WINTERMUTT_INSTALL_BIN_FILE=./wintermutt ssh -T -p 2222 user@host cli-install | bash
+```
+
+To force a specific key for the download step, set:
+
+```bash
+WINTERMUTT_INSTALL_IDENTITY_FILE=~/.ssh/id_ed25519 ssh -T -p 2222 user@host cli-install | bash
+```
 
 ## CLI config file defaults
 

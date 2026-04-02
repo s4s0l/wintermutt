@@ -136,7 +136,7 @@ fi
 # =======================================================================================================
 echo -e "${YELLOW}--- Test Case 5: CLI - List Allowed Keys ---${NC}"
 
-"$ENV_SCRIPT" --start-wintermutt -common-prefix "secrets/data/wintermutt" -allowed-keys-path "secrets/data/wintermutt/allowed-keys"
+"$ENV_SCRIPT" --start-wintermutt -common-prefix "secrets/data/wintermutt" -allowed-keys-path "secrets/data/wintermutt/allowed-keys" -enable-binary-download -external-host "localhost" -external-port "2222"
 sleep 3
 
 echo "Testing CLI list-allowed..."
@@ -168,6 +168,55 @@ if echo "$CONFIG_LIST_OUTPUT" | grep -q "ssh-rsa" && echo "$CONFIG_LIST_OUTPUT" 
 	echo -e "${GREEN}PASS: CLI loaded common settings from config file defaults.${NC}"
 else
 	echo -e "${RED}FAIL: CLI config file defaults did not work as expected.${NC}"
+	fail_test
+	exit 1
+fi
+
+# =======================================================================================================
+echo -e "${YELLOW}--- Test Case 5c: SSH Exec cli-install Script ---${NC}"
+
+INSTALL_HOME="$DIR/../build/test_keys/install_home"
+INSTALL_SCRIPT="$DIR/../build/test_keys/cli-install.sh"
+INSTALL_CONFIG_FILE="$INSTALL_HOME/wintermutt.yml"
+INSTALL_BIN_FILE="$INSTALL_HOME/wintermutt"
+rm -rf "$INSTALL_HOME" "$INSTALL_SCRIPT"
+mkdir -p "$INSTALL_HOME"
+
+echo "Fetching installer script via SSH exec cli-install..."
+ssh -T -i "$DIR/../build/test_keys/id_rsa" -p 2222 -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -o BatchMode=yes -o PreferredAuthentications=publickey localhost cli-install > "$INSTALL_SCRIPT"
+
+chmod +x "$INSTALL_SCRIPT"
+
+echo "Running installer script..."
+WINTERMUTT_CONFIG_FILE="$INSTALL_CONFIG_FILE" WINTERMUTT_INSTALL_BIN_FILE="$INSTALL_BIN_FILE" WINTERMUTT_INSTALL_IDENTITY_FILE="$DIR/../build/test_keys/id_rsa" bash "$INSTALL_SCRIPT"
+
+CONFIG_FILE_INSTALLED="$INSTALL_CONFIG_FILE"
+BIN_INSTALLED="$INSTALL_BIN_FILE"
+
+if [ ! -f "$CONFIG_FILE_INSTALLED" ]; then
+	echo -e "${RED}FAIL: Installer did not create config file.${NC}"
+	fail_test
+	exit 1
+fi
+
+if [ ! -x "$BIN_INSTALLED" ]; then
+	echo -e "${RED}FAIL: Installer did not create executable binary.${NC}"
+	fail_test
+	exit 1
+fi
+
+if grep -q "vault_address: http://" "$CONFIG_FILE_INSTALLED" && grep -q "common_prefix: secrets/data/wintermutt" "$CONFIG_FILE_INSTALLED"; then
+	echo -e "${GREEN}PASS: Installer wrote expected config defaults.${NC}"
+else
+	echo -e "${RED}FAIL: Installer config file does not contain expected values.${NC}"
+	fail_test
+	exit 1
+fi
+
+if "$BIN_INSTALLED" help >/dev/null 2>&1; then
+	echo -e "${GREEN}PASS: Installed binary runs successfully.${NC}"
+else
+	echo -e "${RED}FAIL: Installed binary failed to run.${NC}"
 	fail_test
 	exit 1
 fi

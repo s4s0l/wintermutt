@@ -152,11 +152,23 @@ fi
 
 # =======================================================================================================
 echo -e "${YELLOW}--- Test Case 5b: CLI Config File Defaults ---${NC}"
+CONTAINER_NAME="wintermutt-vault"
+get_vault_addr() {
+	if [ -n "$VAULT_NETWORK" ]; then
+		V_IP=$(docker inspect -f "{{with index .NetworkSettings.Networks \"$VAULT_NETWORK\"}}{{.IPAddress}}{{end}}" "$CONTAINER_NAME" 2>/dev/null)
+	fi
+	if [ -z "$V_IP" ]; then
+		V_IP=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$CONTAINER_NAME" 2>/dev/null || echo "127.0.0.1")
+	fi
+	echo "http://$V_IP:8200"
+}
 
+V_IP="$(get_vault_addr)"
+echo "Vault address for config: $V_IP"
 CONFIG_FILE="$DIR/../build/test_keys/wintermutt.yml"
 cat > "$CONFIG_FILE" <<EOF
 wintermutt:
-  vault_address: http://127.0.0.1:8200
+  vault_address: $V_IP
   common_prefix: secrets/data/wintermutt
   allowed_keys_path: secrets/data/wintermutt/allowed-keys
 EOF

@@ -1,52 +1,68 @@
 # wintermutt usage
 
-## 1) wintermutt reference
+## Reference
 
 `wintermutt` has two modes:
 
-- `serve`: runs the SSH server, authenticates clients via SSH keys, and serves secrets from Vault.
-- `cli`: admin client to manage secrets and allowed keys in Vault.
-
-Mode summary:
-
 ```bash
-wintermutt serve [options]
-wintermutt cli [options] <operation>
-wintermutt help [serve|cli]
+wintermutt serve [options]    # SSH server serving secrets from Vault
+wintermutt cli [options] <operation>  # Admin client for Vault
+wintermutt help [serve|cli]   # Mode-specific help
 ```
 
 ### serve mode
 
-Main responsibility:
+Accepts SSH connections and outputs `export` statements for authenticated keys.
 
-- accept SSH connections and output exported secrets for authenticated keys.
+**Required flags:**
 
-Important flags:
+- `-vault-address` - Vault server URL
+- `-app-role-id` - AppRole Role ID
+- `-secret-id-file` - Path to file with AppRole Secret ID
+- `-common-prefix` - Vault path prefix (e.g., `secrets/data/wintermutt`)
+- `-external-host` - Public SSH hostname (for cli-install)
+- `-external-port` - Public SSH port (for cli-install)
 
-- `-vault-address`, `-app-role-id`, `-secret-id-file`, `-common-prefix`
-- `-shared-path`
-- `-allowed-keys-path`
-- `-enable-binary-download`
-- `-external-host`, `-external-port` (required; used by `cli-install`)
+**Optional flags:**
+
+- `-listen-address` - SSH listen address (default `:2222`)
+- `-shared-path` - Vault path for shared secrets
+- `-allowed-keys-path` - Vault path for allowed keys JSON
+- `-enable-binary-download` - Allow `get-binary` and `cli-install` SSH exec
+- `-disallow-download-by-anybody` - Restrict downloads to allowed keys only
+- `-storage` - Directory for SSH host key (default `.`)
+- `-log-level` - `debug`, `info`, `warn`, `error` (default `info`)
+- `-log-format` - `text`, `json` (default `text`)
 
 ### cli mode
 
-Main responsibility:
+Manages secrets and key allowlist in Vault.
 
-- manage secrets and key allowlist in Vault.
+**Operations:**
 
-Operations:
+- `set` - Set a secret for a public key
+- `rm` - Delete a secret for a public key
+- `set-shared` - Set a shared secret
+- `rm-shared` - Delete a shared secret
+- `allow` - Add a public key to allowed list
+- `revoke` - Remove a public key from allowed list
+- `list-allowed` - List allowed public keys
 
-- `set`, `rm` (per-key or `-path`)
-- `set-shared`, `rm-shared` (shared path)
-- `allow`, `revoke`, `list-allowed`
+**Options:**
 
-Config defaults for `cli` mode:
+- `-vault-address` - Vault server URL
+- `-common-prefix` - Vault path prefix
+- `-vault-token-file` - Path to file with Vault token
+- `-public-key` - Path to public key file
+- `-name` - Secret name
+- `-path` - Override Vault path directly
+- `-shared-path` - Shared secrets path
+- `-allowed-keys-path` - Allowed keys path
+- `-log-level`, `-log-format` - Logging options
 
-- file path: `WINTERMUTT_CONFIG_FILE` or `~/.config/wintermutt/wintermutt.yml`
-- precedence: explicit CLI flag > config file > required-value error
+**Config file** (cli mode only):
 
-Expected config file schema:
+Loaded from `WINTERMUTT_CONFIG_FILE` or `~/.config/wintermutt/wintermutt.yml`:
 
 ```yaml
 wintermutt:
@@ -56,34 +72,25 @@ wintermutt:
   allowed_keys_path: secrets/data/wintermutt/allowed-keys
 ```
 
+CLI flag precedence: explicit flag > config file > error.
+
 ### SSH exec commands
 
-`serve` mode also supports SSH `exec` commands:
-
-- `get-binary`: streams current running binary.
-- `cli-install`: streams installer script.
-
-Both require server flag:
-
-- `-enable-binary-download`
-
-By default, download commands are allowed for any authenticated SSH key, even when `-allowed-keys-path` is configured.
-To require allowlisted keys for downloads, start server with:
-
-- `-disallow-download-by-anybody`
-
-Examples:
+When `-enable-binary-download` is set:
 
 ```bash
-ssh -T -p 2222 wintermutt@your-host get-binary > ./wintermutt && chmod +x ./wintermutt
-ssh -T -p 2222 wintermutt@your-host cli-install | bash
+# Download the server binary
+ssh -T -p 2222 wintermutt@host get-binary > ./wintermutt && chmod +x ./wintermutt
+
+# Install CLI with config
+ssh -T -p 2222 wintermutt@host cli-install | bash
 ```
 
-Installer env overrides:
+Installer environment overrides:
 
-- `WINTERMUTT_CONFIG_FILE` (default `~/.config/wintermutt/wintermutt.yml`)
-- `WINTERMUTT_INSTALL_BIN_FILE` (default `~/.local/bin/wintermutt`)
-- `WINTERMUTT_INSTALL_IDENTITY_FILE` (optional `ssh -i ...` for download step)
+- `WINTERMUTT_CONFIG_FILE` - Config path (default `~/.config/wintermutt/wintermutt.yml`)
+- `WINTERMUTT_INSTALL_BIN_FILE` - Binary path (default `~/.local/bin/wintermutt`)
+- `WINTERMUTT_INSTALL_IDENTITY_FILE` - SSH key for download step
 
 Example with overrides:
 
@@ -91,193 +98,172 @@ Example with overrides:
 WINTERMUTT_CONFIG_FILE=./wintermutt.yml \
 WINTERMUTT_INSTALL_BIN_FILE=./wintermutt \
 WINTERMUTT_INSTALL_IDENTITY_FILE=~/.ssh/id_ed25519 \
-ssh -T -p 2222 wintermutt@your-host cli-install | bash
+ssh -T -p 2222 wintermutt@host cli-install | bash
 ```
 
 ---
 
-## 2) installation user story (step-by-step)
+## Quick start
 
-This walkthrough uses:
-
-- Vault policies for server and admin user
-- AppRole auth for server
-- CLI installation over SSH
-- allowing a client key and retrieving secrets with it
-
-### Step 0: define environment values
+### 1. Start Vault (dev mode)
 
 ```bash
+docker run -d --name vault -p 8200:8200 -e "VAULT_DEV_ROOT_TOKEN_ID=root" hashicorp/vault
 export VAULT_ADDR="http://127.0.0.1:8200"
-
-export WM_MOUNT="secrets"
-export WM_PREFIX="$WM_MOUNT/data/wintermutt"
-export WM_SHARED_PATH="$WM_MOUNT/data/wintermutt/shared"
-export WM_ALLOWED_KEYS_PATH="$WM_MOUNT/data/wintermutt/allowed-keys"
-
-export WM_SERVER_POLICY="wintermutt-server"
-export WM_ADMIN_POLICY="wintermutt-admin"
-export WM_ROLE_NAME="wintermutt-server"
-
-export WM_ROLE_ID_FILE="$PWD/wintermutt_role_id"
-export WM_SECRET_ID_FILE="$PWD/wintermutt_secret_id"
-
-export WM_SSH_HOST="your-host"
-export WM_SSH_PORT="2222"
-
-export WM_KEY_PRIV="$HOME/.ssh/wintermutt_demo"
-export WM_KEY_PUB="$HOME/.ssh/wintermutt_demo.pub"
+export VAULT_TOKEN="root"
 ```
 
-### Step 1: create server policy (read/list)
+### 2. Configure Vault
 
 ```bash
-cat > ./wintermutt-server.hcl <<'EOF'
+# Enable AppRole and KV
+vault auth enable approle
+vault secrets enable -path=secrets kv-v2
+
+# Create policy
+cat > wintermutt-policy.hcl <<'EOF'
 path "secrets/metadata/wintermutt/*" {
   capabilities = ["list", "read"]
 }
-
 path "secrets/data/wintermutt/*" {
   capabilities = ["read"]
 }
 EOF
+vault policy write wintermutt-policy wintermutt-policy.hcl
 
-vault policy write "$WM_SERVER_POLICY" ./wintermutt-server.hcl
+# Create AppRole
+vault write auth/approle/role/wintermutt-role \
+  token_policies="wintermutt-policy" \
+  token_ttl=1h token_max_ttl=4h
+
+# Save credentials
+vault read -field=role_id auth/approle/role/wintermutt-role/role-id > role_id
+vault write -f -field=secret_id auth/approle/role/wintermutt-role/secret-id > secret_id
 ```
 
-### Step 2: create AppRole for server and save credentials
-
-```bash
-vault auth enable approle || true
-
-vault write "auth/approle/role/$WM_ROLE_NAME" \
-  token_policies="$WM_SERVER_POLICY" \
-  token_ttl=1h \
-  token_max_ttl=4h
-
-vault read -field=role_id "auth/approle/role/$WM_ROLE_NAME/role-id" > "$WM_ROLE_ID_FILE"
-vault write -f -field=secret_id "auth/approle/role/$WM_ROLE_NAME/secret-id" > "$WM_SECRET_ID_FILE"
-
-export WM_ROLE_ID="$(cat "$WM_ROLE_ID_FILE")"
-```
-
-### Step 3: create admin policy (manage secrets and allowlist)
-
-```bash
-cat > ./wintermutt-admin.hcl <<'EOF'
-path "secrets/metadata/wintermutt/*" {
-  capabilities = ["list", "read"]
-}
-
-path "secrets/data/wintermutt/*" {
-  capabilities = ["create", "update", "read", "delete"]
-}
-EOF
-
-vault policy write "$WM_ADMIN_POLICY" ./wintermutt-admin.hcl
-```
-
-Now bind `wintermutt-admin` policy to your Vault user/group/token (depends on your auth backend), then log in with Vault CLI as that user.
-
-Assumption below: current `vault` CLI session has `wintermutt-admin` permissions.
-
-### Step 3b: create short-lived child token for CLI actions
-
-This keeps admin operations scoped to a 10-minute token and avoids storing token in a file.
-
-```bash
-export WM_ADMIN_TOKEN="$(
-  vault token create \
-    -policy="$WM_ADMIN_POLICY" \
-    -ttl=10m \
-    -format=json | jq -r '.auth.client_token'
-)"
-```
-
-All subsequent `wintermutt cli` commands use:
-
-- `-vault-token-file <(printf '%s' "$WM_ADMIN_TOKEN")`
-
-Note: `<(...)` is Bash process substitution syntax.
-
-### Step 4: start wintermutt server
+### 3. Start server
 
 ```bash
 wintermutt serve \
   -vault-address "$VAULT_ADDR" \
-  -app-role-id "$WM_ROLE_ID" \
-  -secret-id-file "$WM_SECRET_ID_FILE" \
-  -common-prefix "$WM_PREFIX" \
-  -shared-path "$WM_SHARED_PATH" \
-  -allowed-keys-path "$WM_ALLOWED_KEYS_PATH" \
+  -app-role-id "$(cat role_id)" \
+  -secret-id-file secret_id \
+  -common-prefix "secrets/data/wintermutt" \
+  -shared-path "secrets/data/wintermutt/shared" \
+  -allowed-keys-path "secrets/data/wintermutt/allowed-keys" \
   -enable-binary-download \
-  -external-host "$WM_SSH_HOST" \
-  -external-port "$WM_SSH_PORT" \
-  -listen-address ":$WM_SSH_PORT"
+  -external-host "localhost" \
+  -external-port "2222" \
+  -listen-address ":2222"
 ```
 
-### Step 5: create sample SSH keypair for client
+### 4. Retrieve secrets
+
+First, generate an SSH key and add it via CLI (see below for CLI examples):
 
 ```bash
-ssh-keygen -t ed25519 -f "$WM_KEY_PRIV" -N "" -C "wintermutt-demo"
+# Generate SSH key
+ssh-keygen -t ed25519 -f ~/.ssh/wintermutt_demo -N "" -C "demo"
+
+# Allow the key (requires admin token with wintermutt-admin policy)
+wintermutt cli -vault-token-file <(echo "$VAULT_TOKEN") allow -public-key ~/.ssh/wintermutt_demo.pub
+
+# Set secrets
+echo "my-db-password" | wintermutt cli -vault-token-file <(echo "$VAULT_TOKEN") \
+  set -public-key ~/.ssh/wintermutt_demo.pub -name db_password
 ```
 
-### Step 6: install CLI over SSH
+Now retrieve secrets:
 
 ```bash
-ssh -T -p "$WM_SSH_PORT" "wintermutt@$WM_SSH_HOST" cli-install | bash
+ssh -i ~/.ssh/wintermutt_demo -p 2222 -o StrictHostKeyChecking=no localhost
 ```
 
-Default outputs after install:
-
-- config: `~/.config/wintermutt/wintermutt.yml`
-- binary: `~/.local/bin/wintermutt`
-
-### Step 7: allow the sample key
-
-```bash
-~/.local/bin/wintermutt cli \
-  -vault-token-file <(printf '%s' "$WM_ADMIN_TOKEN") \
-  allow \
-  -public-key "$WM_KEY_PUB"
-```
-
-### Step 8: add secrets
-
-Add key-specific secret:
-
-```bash
-echo "my-db-password" | ~/.local/bin/wintermutt cli \
-  -vault-token-file <(printf '%s' "$WM_ADMIN_TOKEN") \
-  set \
-  -public-key "$WM_KEY_PUB" \
-  -name db_password
-```
-
-Add shared secret:
-
-```bash
-echo "shared-api-key" | ~/.local/bin/wintermutt cli \
-  -vault-token-file <(printf '%s' "$WM_ADMIN_TOKEN") \
-  set-shared \
-  -name api_key
-```
-
-### Step 9: retrieve secrets over SSH using the key
-
-```bash
-ssh -i "$WM_KEY_PRIV" -p "$WM_SSH_PORT" "wintermutt@$WM_SSH_HOST"
-```
-
-Expected output format:
+Outputs `export` statements:
 
 ```bash
 export db_password="my-db-password"
-export api_key="shared-api-key"
 ```
 
-To load directly into current shell:
+---
+
+## CLI examples
+
+### Using config file
+
+The file is created automatically to match the server settings
+if using ssh command `cli-install`.
 
 ```bash
-eval "$(ssh -i "$WM_KEY_PRIV" -p "$WM_SSH_PORT" "wintermutt@$WM_SSH_HOST")"
+# Create config
+mkdir -p ~/.config/wintermutt
+cat > ~/.config/wintermutt/wintermutt.yml <<EOF
+wintermutt:
+  vault_address: $VAULT_ADDR
+  common_prefix: secrets/data/wintermutt
+  shared_path: secrets/data/wintermutt/shared
+  allowed_keys_path: secrets/data/wintermutt/allowed-keys
+EOF
+
+# List allowed keys (uses config file defaults)
+wintermutt cli -vault-token-file <(echo "$VAULT_TOKEN") list-allowed
+```
+
+### Set/remove secrets
+
+```bash
+PUB_KEY=~/.ssh/wintermutt_demo.pub
+
+# Set key-specific secret
+echo "new-password" | wintermutt cli \
+  -vault-token-file <(echo "$VAULT_TOKEN") \
+  set -public-key "$PUB_KEY" -name db_password
+
+# Set shared secret
+echo "new-api-key" | wintermutt cli \
+  -vault-token-file <(echo "$VAULT_TOKEN") \
+  set-shared -name api_key
+
+# Remove secret
+wintermutt cli \
+  -vault-token-file <(echo "$VAULT_TOKEN") \
+  rm -public-key "$PUB_KEY" -name db_password
+
+# Remove shared secret
+wintermutt cli \
+  -vault-token-file <(echo "$VAULT_TOKEN") \
+  rm-shared -name api_key
+```
+
+### Manage allowed keys
+
+```bash
+# Allow a key
+wintermutt cli \
+  -vault-token-file <(echo "$VAULT_TOKEN") \
+  allow -public-key ~/.ssh/new_key.pub
+
+# Revoke a key
+wintermutt cli \
+  -vault-token-file <(echo "$VAULT_TOKEN") \
+  revoke -public-key ~/.ssh/old_key.pub
+
+# List allowed keys
+wintermutt cli \
+  -vault-token-file <(echo "$VAULT_TOKEN") \
+  list-allowed
+```
+
+### Arbitrary paths
+
+```bash
+# Set secret at custom path
+echo "value" | wintermutt cli \
+  -vault-token-file <(echo "$VAULT_TOKEN") \
+  set -path "secrets/data/wintermutt/shared" -name custom_secret
+
+# Remove from custom path
+wintermutt cli \
+  -vault-token-file <(echo "$VAULT_TOKEN") \
+  rm -path "secrets/data/wintermutt/shared" -name custom_secret
 ```

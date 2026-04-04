@@ -3,11 +3,14 @@ package main
 import (
 	"flag"
 	"fmt"
+	"os"
+	"strings"
 )
 
 type ServerConfig struct {
 	ListenAddr                string
 	AppRoleID                 string
+	AppRoleIDFile             string
 	SecretIDFile              string
 	SharedPath                string
 	StoragePath               string
@@ -21,7 +24,8 @@ var serverCfg ServerConfig
 
 func init() {
 	flag.StringVar(&serverCfg.ListenAddr, "listen-address", ":2222", "Address for the SSH server to listen on")
-	flag.StringVar(&serverCfg.AppRoleID, "app-role-id", "", "AppRole Role ID for Vault authentication")
+	flag.StringVar(&serverCfg.AppRoleID, "app-role-id", "", "AppRole Role ID for Vault authentication - exclusive with -app-role-id-file")
+	flag.StringVar(&serverCfg.AppRoleIDFile, "app-role-id-file", "", "Path to a file containing the AppRole Role ID for Vault authentication - exclusive with -app-role-id")
 	flag.StringVar(&serverCfg.SecretIDFile, "secret-id-file", "", "Path to a file containing the AppRole Secret ID")
 	flag.StringVar(&serverCfg.SharedPath, "shared-path", "", "A path in Vault to read shared secrets from")
 	flag.StringVar(&serverCfg.StoragePath, "storage", ".", "Directory to store the server host key")
@@ -40,8 +44,21 @@ func LoadServer(common *CommonConfig) (*Config, error) {
 	if cfg.VaultAddress == "" {
 		return nil, fmt.Errorf("-vault-address is required")
 	}
-	if cfg.AppRoleID == "" {
-		return nil, fmt.Errorf("-app-role-id is required")
+	if cfg.AppRoleID != "" && cfg.AppRoleIDFile != "" {
+		return nil, fmt.Errorf("only one of -app-role-id or -app-role-id-file may be set")
+	}
+	if cfg.AppRoleID == "" && cfg.AppRoleIDFile == "" {
+		return nil, fmt.Errorf("one of -app-role-id or -app-role-id-file is required")
+	}
+	if cfg.AppRoleIDFile != "" {
+		data, err := os.ReadFile(cfg.AppRoleIDFile)
+		if err != nil {
+			return nil, fmt.Errorf("reading -app-role-id-file: %w", err)
+		}
+		cfg.AppRoleID = strings.TrimSpace(string(data))
+		if cfg.AppRoleID == "" {
+			return nil, fmt.Errorf("-app-role-id-file %q is empty", cfg.AppRoleIDFile)
+		}
 	}
 	if cfg.SecretIDFile == "" {
 		return nil, fmt.Errorf("-secret-id-file is required")
@@ -68,7 +85,8 @@ func ServerHelp() string {
 Options:
   -listen-address string   Address for the SSH server to listen on (default: :2222)
   -vault-address string    Address of the HashiCorp Vault server (required)
-  -app-role-id string      AppRole Role ID for Vault authentication (required)
+  -app-role-id string      AppRole Role ID for Vault authentication (required if --app-role-id-file not set)
+  -app-role-id-file string Path to a file containing the AppRole Role ID (required if --app-role-id not set)
   -secret-id-file string   Path to a file containing the AppRole Secret ID (required)
   -common-prefix string    Common prefix for secrets in Vault (required)
   -shared-path string      A path in Vault to read shared secrets from

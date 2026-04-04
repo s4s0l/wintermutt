@@ -17,7 +17,8 @@ Accepts SSH connections and outputs `export` statements for authenticated keys.
 **Required flags:**
 
 - `-vault-address` - Vault server URL
-- `-app-role-id` - AppRole Role ID
+- `-app-role-id` - AppRole Role ID (mutually exclusive with `-app-role-id-file`)
+- `-app-role-id-file` - Path to file containing the AppRole Role ID (mutually exclusive with `-app-role-id`)
 - `-secret-id-file` - Path to file with AppRole Secret ID
 - `-common-prefix` - Vault path prefix (e.g., `secrets/data/wintermutt`)
 - `-external-host` - Public SSH hostname (for cli-install)
@@ -100,6 +101,59 @@ WINTERMUTT_INSTALL_BIN_FILE=./wintermutt \
 WINTERMUTT_INSTALL_IDENTITY_FILE=~/.ssh/id_ed25519 \
 ssh -T -p 2222 wintermutt@host cli-install | bash
 ```
+
+---
+
+## Running in Docker
+
+### Docker Compose
+
+The recommended way to run wintermutt in Docker is with Docker Compose.
+Supply credentials as read-only bind-mounts so they are never baked into the image.
+The storage volume holds the SSH host key; mounting it persistently avoids generating a new key on every restart.
+
+```yaml
+services:
+  wintermutt:
+    image: wintermutt:latest
+    build: .
+    ports:
+      - "2222:2222"
+    volumes:
+      # Persistent storage for the SSH host key
+      - wintermutt-storage:/app/storage
+      # Vault credentials – mount as read-only files
+      - ./role_id:/run/secrets/role_id:ro
+      - ./secret_id:/run/secrets/secret_id:ro
+    command:
+      - serve
+      - -vault-address=http://vault:8200
+      - -app-role-id-file=/run/secrets/role_id
+      - -secret-id-file=/run/secrets/secret_id
+      - -common-prefix=secrets/data/wintermutt
+      - -external-host=your.host.example
+      - -external-port=2222
+      - -storage=/app/storage
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "2222"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  wintermutt-storage:
+```
+
+**Storage mount** — `-storage` points wintermutt to the directory where it reads and writes the SSH host key.
+Mapping a named volume (or a host path) to that directory ensures the host key survives container restarts, so clients are not confronted with host-key-changed warnings.
+
+**Healthcheck** — the check opens a TCP connection to the SSH port.
+A successful connection means the server is up and accepting connections.
+The `start_period` gives the server time to authenticate with Vault before the first check is evaluated.
+
+> **Note:** The healthcheck uses `nc` (netcat), which is included in the Alpine base image via BusyBox.
+> If you use a different base image, replace the check with an equivalent TCP probe.
 
 ---
 

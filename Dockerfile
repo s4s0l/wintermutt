@@ -4,13 +4,13 @@ WORKDIR /build
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN go build -o wintermutt ./wintermutt
+RUN go build -o /build/bin/wintermutt ./wintermutt
 
 # Stage 2: Runtime
 FROM alpine:3.20
 WORKDIR /app
 RUN apk add --no-cache ca-certificates && \
     adduser -D -u 1000 appuser
-COPY --from=builder /build/wintermutt /app/wintermutt
+COPY --from=builder /build/bin/wintermutt /app/wintermutt
 USER appuser
 ENTRYPOINT ["/app/wintermutt"]

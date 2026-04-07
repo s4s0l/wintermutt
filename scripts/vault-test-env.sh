@@ -189,6 +189,7 @@ wintermutt_start() {
 	echo "Starting wintermutt server in background (Vault at $V_ADDR)..."
 	"$SERVER_BIN" serve \
 		-vault-address "$V_ADDR" \
+		-external-vault-address "http://127.0.0.1:8200" \
 		-enable-binary-download \
 		-external-host "localhost" \
 		-external-port "2222" \
@@ -199,8 +200,8 @@ wintermutt_start() {
 		-storage "$KEYS_DIR" \
 		"${SERVER_ARGS[@]}" >"$SERVER_LOG_FILE" 2>&1 &
 	if [[ ! -f "$HOME/.ssh/known_hosts" ]]; then
-	    mkdir -p "$HOME/.ssh"
-	    touch "$HOME/.ssh/known_hosts"
+		mkdir -p "$HOME/.ssh"
+		touch "$HOME/.ssh/known_hosts"
 		chmod 600 "$HOME/.ssh/known_hosts"
 		chmod 700 "$HOME/.ssh"
 	fi

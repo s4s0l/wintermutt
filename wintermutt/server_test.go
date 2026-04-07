@@ -80,11 +80,12 @@ func TestRenderCLIInstallScriptIncludesServerSettings(t *testing.T) {
 		VaultAddress:    "http://127.0.0.1:8200",
 		CommonPrefix:    "secrets/data/wintermutt",
 		AllowedKeysPath: "secrets/data/wintermutt/allowed-keys",
-	}, ServerConfig: ServerConfig{SharedPath: "secrets/data/wintermutt/shared", ExternalHost: "ssh.example.com", ExternalPort: "2222"}}
+	}, ServerConfig: ServerConfig{SharedPath: "secrets/data/wintermutt/shared", ExternalHost: "ssh.example.com", ExternalPort: "2222", ExternalVaultAddress: "https://vault.example.com:8200"}}
 
 	script, err := renderCLIInstallScript(cfg)
 	assert.NoError(t, err)
-	assert.Contains(t, script, "vault_address: http://127.0.0.1:8200")
+	assert.Contains(t, script, "vault_address: https://vault.example.com:8200")
+	assert.NotContains(t, script, "vault_address: http://127.0.0.1:8200")
 	assert.Contains(t, script, "common_prefix: secrets/data/wintermutt")
 	assert.Contains(t, script, "shared_path: secrets/data/wintermutt/shared")
 	assert.Contains(t, script, "allowed_keys_path: secrets/data/wintermutt/allowed-keys")

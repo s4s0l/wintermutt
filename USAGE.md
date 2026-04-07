@@ -44,8 +44,10 @@ Manages secrets and key allowlist in Vault.
 
 - `set` - Set a secret for a public key
 - `rm` - Delete a secret for a public key
+- `list` - List secret names for a public key
 - `set-shared` - Set a shared secret
 - `rm-shared` - Delete a shared secret
+- `list-shared` - List shared secret names
 - `allow` - Add a public key to allowed list
 - `revoke` - Remove a public key from allowed list
 - `list-allowed` - List allowed public keys
@@ -288,10 +290,20 @@ wintermutt cli \
   -vault-token-file <(echo "$VAULT_TOKEN") \
   rm -public-key "$PUB_KEY" -name db_password
 
+# List secret names for key
+wintermutt cli \
+  -vault-token-file <(echo "$VAULT_TOKEN") \
+  list -public-key "$PUB_KEY"
+
 # Remove shared secret
 wintermutt cli \
   -vault-token-file <(echo "$VAULT_TOKEN") \
   rm-shared -name api_key
+
+# List shared secret names
+wintermutt cli \
+  -vault-token-file <(echo "$VAULT_TOKEN") \
+  list-shared
 ```
 
 ### Manage allowed keys

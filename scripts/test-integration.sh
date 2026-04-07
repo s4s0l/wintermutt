@@ -166,7 +166,7 @@ get_vault_addr() {
 V_IP="$(get_vault_addr)"
 echo "Vault address for config: $V_IP"
 CONFIG_FILE="$DIR/../build/test_keys/wintermutt.yml"
-cat > "$CONFIG_FILE" <<EOF
+cat >"$CONFIG_FILE" <<EOF
 wintermutt:
   vault_address: $V_IP
   common_prefix: secrets/data/wintermutt
@@ -196,7 +196,7 @@ rm -rf "$INSTALL_HOME" "$INSTALL_SCRIPT"
 mkdir -p "$INSTALL_HOME"
 
 echo "Fetching installer script via SSH exec cli-install..."
-ssh -T -i "$DIR/../build/test_keys/id_rsa" -p 2222 -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -o BatchMode=yes -o PreferredAuthentications=publickey localhost cli-install > "$INSTALL_SCRIPT"
+ssh -T -i "$DIR/../build/test_keys/id_rsa" -p 2222 -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -o BatchMode=yes -o PreferredAuthentications=publickey localhost cli-install >"$INSTALL_SCRIPT"
 
 chmod +x "$INSTALL_SCRIPT"
 
@@ -243,7 +243,7 @@ else
 fi
 
 echo "Testing unauthorized key can still download by default..."
-if ssh -T -i "$DIR/../build/test_keys/id_rsa_unauthorized" -p 2222 -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -o BatchMode=yes -o PreferredAuthentications=publickey localhost get-binary > "$INSTALL_HOME/unauth.bin"; then
+if ssh -T -i "$DIR/../build/test_keys/id_rsa_unauthorized" -p 2222 -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -o BatchMode=yes -o PreferredAuthentications=publickey localhost get-binary >"$INSTALL_HOME/unauth.bin"; then
 	echo -e "${GREEN}PASS: Unauthorized key can download binary by default.${NC}"
 else
 	echo -e "${RED}FAIL: Unauthorized key could not download binary by default.${NC}"
@@ -257,7 +257,7 @@ echo "Restarting server with -disallow-download-by-anybody..."
 sleep 3
 
 echo "Testing unauthorized key download is denied when disallow flag is set..."
-if ssh -T -i "$DIR/../build/test_keys/id_rsa_unauthorized" -p 2222 -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -o BatchMode=yes -o PreferredAuthentications=publickey localhost get-binary > "$INSTALL_HOME/unauth.bin" 2>&1; then
+if ssh -T -i "$DIR/../build/test_keys/id_rsa_unauthorized" -p 2222 -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -o BatchMode=yes -o PreferredAuthentications=publickey localhost get-binary >"$INSTALL_HOME/unauth.bin" 2>&1; then
 	echo -e "${RED}FAIL: Unauthorized key download succeeded with disallow flag.${NC}"
 	fail_test
 	exit 1
@@ -273,6 +273,16 @@ echo "$SHARED_SECRET_VALUE" | "$ENV_SCRIPT" --cli set-shared -name "cli_shared_s
 
 sleep 2
 
+echo "Testing CLI list-shared after set-shared..."
+LIST_SHARED_OUTPUT=$("$ENV_SCRIPT" --cli list-shared -shared-path "secrets/data/wintermutt/shared" 2>&1)
+echo "$LIST_SHARED_OUTPUT"
+if echo "$LIST_SHARED_OUTPUT" | grep -q "cli_shared_secret"; then
+	echo -e "${GREEN}PASS: CLI list-shared shows newly added shared secret.${NC}"
+else
+	echo -e "${RED}FAIL: CLI list-shared did not show newly added shared secret.${NC}"
+	fail_test
+fi
+
 RSA_OUTPUT=$("$ENV_SCRIPT" --ssh-rsa)
 echo "$RSA_OUTPUT"
 if echo "$RSA_OUTPUT" | grep -q "cli_shared_secret=\"$SHARED_SECRET_VALUE\""; then
@@ -285,6 +295,16 @@ fi
 "$ENV_SCRIPT" --cli rm-shared -name "cli_shared_secret" -shared-path "secrets/data/wintermutt/shared" 2>&1
 
 sleep 2
+
+echo "Testing CLI list-shared after rm-shared..."
+LIST_SHARED_OUTPUT=$("$ENV_SCRIPT" --cli list-shared -shared-path "secrets/data/wintermutt/shared" 2>&1)
+echo "$LIST_SHARED_OUTPUT"
+if ! echo "$LIST_SHARED_OUTPUT" | grep -q "cli_shared_secret"; then
+	echo -e "${GREEN}PASS: CLI list-shared no longer shows removed shared secret.${NC}"
+else
+	echo -e "${RED}FAIL: CLI list-shared still shows removed shared secret.${NC}"
+	fail_test
+fi
 
 RSA_OUTPUT=$("$ENV_SCRIPT" --ssh-rsa)
 echo "$RSA_OUTPUT"
@@ -304,6 +324,16 @@ SECRET_VALUE="cli-set-secret-$(date +%s)"
 echo "$SECRET_VALUE" | "$ENV_SCRIPT" --cli set -public-key "$DIR/../build/test_keys/id_rsa.pub" -common-prefix "secrets/data/wintermutt" -name "cli_test_secret" 2>&1
 
 sleep 2
+
+echo "Testing CLI list operation..."
+LIST_OUTPUT=$("$ENV_SCRIPT" --cli list -public-key "$DIR/../build/test_keys/id_rsa.pub" -common-prefix "secrets/data/wintermutt" 2>&1)
+echo "$LIST_OUTPUT"
+if echo "$LIST_OUTPUT" | grep -q "cli_test_secret"; then
+	echo -e "${GREEN}PASS: CLI list returned newly set key-specific secret.${NC}"
+else
+	echo -e "${RED}FAIL: CLI list did not return newly set key-specific secret.${NC}"
+	fail_test
+fi
 
 # Retrieve secrets via SSH and check for our new secret
 SSH_OUTPUT=$("$ENV_SCRIPT" --ssh-rsa)
@@ -339,6 +369,16 @@ fi
 "$ENV_SCRIPT" --cli rm -public-key "$DIR/../build/test_keys/id_rsa.pub" -common-prefix "secrets/data/wintermutt" -name "cli_delete_me" 2>&1
 
 sleep 2
+
+echo "Testing CLI list after rm..."
+LIST_OUTPUT=$("$ENV_SCRIPT" --cli list -public-key "$DIR/../build/test_keys/id_rsa.pub" -common-prefix "secrets/data/wintermutt" 2>&1)
+echo "$LIST_OUTPUT"
+if ! echo "$LIST_OUTPUT" | grep -q "cli_delete_me"; then
+	echo -e "${GREEN}PASS: CLI list no longer shows removed key-specific secret.${NC}"
+else
+	echo -e "${RED}FAIL: CLI list still shows removed key-specific secret.${NC}"
+	fail_test
+fi
 
 # Verify it's gone
 SSH_OUTPUT=$("$ENV_SCRIPT" --ssh-rsa)
@@ -444,6 +484,16 @@ fi
 
 sleep 2
 
+echo "Testing CLI list with -path..."
+LIST_PATH_OUTPUT=$("$ENV_SCRIPT" --cli list -path "secrets/data/wintermutt/shared" 2>&1)
+echo "$LIST_PATH_OUTPUT"
+if echo "$LIST_PATH_OUTPUT" | grep -q "arbitrary_secret"; then
+	echo -e "${GREEN}PASS: CLI list with -path returned arbitrary path secret.${NC}"
+else
+	echo -e "${RED}FAIL: CLI list with -path did not return arbitrary path secret.${NC}"
+	fail_test
+fi
+
 # Verify RSA client can see the shared secret
 "$ENV_SCRIPT" --start-wintermutt -common-prefix "secrets/data/wintermutt" -shared-path "secrets/data/wintermutt/shared"
 sleep 3
@@ -470,6 +520,16 @@ if echo "$RM_OUTPUT" | grep -q "deleted successfully"; then
 	echo -e "${GREEN}PASS: CLI rm with -path flag deleted secret at arbitrary path.${NC}"
 else
 	echo -e "${RED}FAIL: CLI rm with -path failed.${NC}"
+	fail_test
+fi
+
+echo "Testing CLI list with -path after rm..."
+LIST_PATH_OUTPUT=$("$ENV_SCRIPT" --cli list -path "secrets/data/wintermutt/shared" 2>&1)
+echo "$LIST_PATH_OUTPUT"
+if ! echo "$LIST_PATH_OUTPUT" | grep -q "arbitrary_secret"; then
+	echo -e "${GREEN}PASS: CLI list with -path no longer shows removed secret.${NC}"
+else
+	echo -e "${RED}FAIL: CLI list with -path still shows removed secret.${NC}"
 	fail_test
 fi
 

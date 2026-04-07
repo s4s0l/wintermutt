@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -272,6 +273,59 @@ func (c *Client) GetSecrets(basePath string) (map[string]string, error) {
 	}
 
 	return secrets, nil
+}
+
+func (c *Client) ListSecretNames(basePath string) ([]string, error) {
+	listPath := strings.Replace(basePath, "secrets/data/", "secrets/metadata/", 1)
+	secret, err := c.client.Logical().List(listPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list secrets at %s: %w", listPath, err)
+	}
+
+	if secret == nil || secret.Data == nil {
+		return []string{}, nil
+	}
+
+	keys, ok := secret.Data["keys"].([]interface{})
+	if !ok {
+		return []string{}, nil
+	}
+
+	names := make([]string, 0, len(keys))
+	for _, k := range keys {
+		keyName, ok := k.(string)
+		if !ok {
+			continue
+		}
+
+		fullPath := path.Join(basePath, keyName)
+		dataSecret, err := c.client.Logical().Read(fullPath)
+		if err != nil || dataSecret == nil || dataSecret.Data == nil {
+			continue
+		}
+
+		var data map[string]interface{}
+		if d, exists := dataSecret.Data["data"]; exists {
+			if m, ok := d.(map[string]interface{}); ok {
+				data = m
+			}
+		} else {
+			data = dataSecret.Data
+		}
+
+		if data == nil {
+			continue
+		}
+
+		if _, ok := data["value"].(string); !ok {
+			continue
+		}
+
+		names = append(names, keyName)
+	}
+
+	sort.Strings(names)
+	return names, nil
 }
 
 func (c *Client) SetSecret(path, name, value string) error {

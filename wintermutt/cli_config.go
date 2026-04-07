@@ -25,7 +25,7 @@ var cliCfg CliConfig
 func init() {
 	flag.StringVar(&cliCfg.VaultTokenFile, "vault-token-file", "", "Path to file containing Vault token")
 	flag.StringVar(&cliCfg.PublicKeyFile, "public-key", "", "Path to public key file")
-	flag.StringVar(&cliCfg.Operation, "op", "", "CLI operation: 'set', 'rm', 'set-shared', 'rm-shared', 'allow', 'revoke', 'list-allowed'")
+	flag.StringVar(&cliCfg.Operation, "op", "", "CLI operation: 'set', 'rm', 'list', 'set-shared', 'rm-shared', 'list-shared', 'allow', 'revoke', 'list-allowed'")
 	flag.StringVar(&cliCfg.SecretName, "name", "", "Name of the secret (for set/rm/set-shared/rm-shared)")
 	flag.StringVar(&cliCfg.SecretPath, "path", "", "Override the secret path in Vault (skips fingerprint derivation)")
 }
@@ -50,10 +50,10 @@ func parseCLIArgs(commonDefaults *CommonConfig, args []string) (*Config, map[str
 	fs.StringVar(&common.AllowedKeysPath, "allowed-keys-path", common.AllowedKeysPath, "Path to Vault secret containing JSON list of allowed keys")
 	fs.StringVar(&cli.VaultTokenFile, "vault-token-file", cli.VaultTokenFile, "Path to file containing Vault token")
 	fs.StringVar(&cli.PublicKeyFile, "public-key", cli.PublicKeyFile, "Path to public key file")
-	fs.StringVar(&cli.Operation, "op", cli.Operation, "CLI operation: 'set', 'rm', 'set-shared', 'rm-shared', 'allow', 'revoke', 'list-allowed'")
+	fs.StringVar(&cli.Operation, "op", cli.Operation, "CLI operation: 'set', 'rm', 'list', 'set-shared', 'rm-shared', 'list-shared', 'allow', 'revoke', 'list-allowed'")
 	fs.StringVar(&cli.SecretName, "name", cli.SecretName, "Name of the secret (for set/rm/set-shared/rm-shared)")
 	fs.StringVar(&cli.SecretPath, "path", cli.SecretPath, "Override the secret path in Vault (skips fingerprint derivation)")
-	fs.StringVar(&cli.CliSharedPath, "shared-path", cli.CliSharedPath, "Path in Vault for shared secrets (used by set-shared/rm-shared)")
+	fs.StringVar(&cli.CliSharedPath, "shared-path", cli.CliSharedPath, "Path in Vault for shared secrets (used by set-shared/rm-shared/list-shared)")
 	fs.StringVar(&logLevel, "log-level", logLevel, "Log level: debug, info, warn, error")
 	fs.StringVar(&logFormat, "log-format", logFormat, "Log format: text, json")
 
@@ -180,12 +180,12 @@ func LoadCLI(common *CommonConfig, args []string) (*Config, error) {
 		return nil, fmt.Errorf("-vault-address is required")
 	}
 	if cfg.Operation == "" {
-		return nil, fmt.Errorf("CLI operation required: set, rm, set-shared, rm-shared, allow, revoke, or list-allowed")
+		return nil, fmt.Errorf("CLI operation required: set, rm, list, set-shared, rm-shared, list-shared, allow, revoke, or list-allowed")
 	}
 	if !isCLIOperation(cfg.Operation) {
-		return nil, fmt.Errorf("invalid CLI operation: %s (must be set, rm, set-shared, rm-shared, allow, revoke, or list-allowed)", cfg.Operation)
+		return nil, fmt.Errorf("invalid CLI operation: %s (must be set, rm, list, set-shared, rm-shared, list-shared, allow, revoke, or list-allowed)", cfg.Operation)
 	}
-	if cfg.Operation != "list-allowed" && cfg.Operation != "set-shared" && cfg.Operation != "rm-shared" {
+	if cfg.Operation != "list-allowed" && cfg.Operation != "set-shared" && cfg.Operation != "rm-shared" && cfg.Operation != "list-shared" {
 		if cfg.PublicKeyFile == "" && cfg.SecretPath == "" {
 			return nil, fmt.Errorf("-public-key is required for CLI mode (unless -path is provided)")
 		}
@@ -195,12 +195,12 @@ func LoadCLI(common *CommonConfig, args []string) (*Config, error) {
 			return nil, fmt.Errorf("-name is required for %s operation", cfg.Operation)
 		}
 	}
-	if cfg.Operation == "set" || cfg.Operation == "rm" {
+	if cfg.Operation == "set" || cfg.Operation == "rm" || cfg.Operation == "list" {
 		if cfg.CommonPrefix == "" && cfg.SecretPath == "" {
 			return nil, fmt.Errorf("-common-prefix or -path is required")
 		}
 	}
-	if cfg.Operation == "set-shared" || cfg.Operation == "rm-shared" {
+	if cfg.Operation == "set-shared" || cfg.Operation == "rm-shared" || cfg.Operation == "list-shared" {
 		if cfg.CliSharedPath == "" {
 			return nil, fmt.Errorf("-shared-path is required for %s operation", cfg.Operation)
 		}
@@ -209,6 +209,11 @@ func LoadCLI(common *CommonConfig, args []string) (*Config, error) {
 		}
 		if cfg.SecretPath != "" {
 			return nil, fmt.Errorf("-path is not allowed for %s operation", cfg.Operation)
+		}
+	}
+	if cfg.Operation == "list" || cfg.Operation == "list-shared" {
+		if cfg.SecretName != "" {
+			return nil, fmt.Errorf("-name is not allowed for %s operation", cfg.Operation)
 		}
 	}
 	if cfg.Operation == "allow" || cfg.Operation == "revoke" {
@@ -249,8 +254,10 @@ func CLIHelp() string {
 CLI Operations:
   set          Set a secret for a public key
   rm           Delete a secret for a public key
+  list         List secret names for a public key
   set-shared   Set a secret at shared path
   rm-shared    Delete a secret at shared path
+  list-shared  List secret names at shared path
   allow        Add a public key to the allowed list
   revoke       Remove a public key from the allowed list
   list-allowed List all allowed public keys
@@ -261,10 +268,10 @@ Options:
   -allowed-keys-path string Path to Vault secret containing JSON list of allowed keys (required for allow/revoke/list-allowed)
   -vault-token-file string Path to file containing Vault token (defaults to ~/.vault-token when omitted)
   -public-key string      Path to public key file
-  -op string              CLI operation (set, rm, set-shared, rm-shared, allow, revoke, list-allowed)
+  -op string              CLI operation (set, rm, list, set-shared, rm-shared, list-shared, allow, revoke, list-allowed)
   -name string            Name of the secret (for set/rm/set-shared/rm-shared)
   -path string            Override the secret path in Vault
-  -shared-path string     Path in Vault for shared secrets (used by set-shared/rm-shared)
+  -shared-path string     Path in Vault for shared secrets (used by set-shared/rm-shared/list-shared)
 
 Config file defaults (cli mode):
   - uses WINTERMUTT_CONFIG_FILE when set

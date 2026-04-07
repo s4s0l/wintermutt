@@ -60,25 +60,22 @@ func (s *Server) Start() error {
 		allowlistConfigured := s.cfg.AllowedKeysPath != ""
 		authorized := true
 		if allowlistConfigured {
+			authorized = false
 			allowedData, err := s.vault.GetRawSecret(s.cfg.AllowedKeysPath)
 			if err != nil {
 				return nil, fmt.Errorf("failed to fetch allowed keys: %w", err)
 			}
-			if allowedData == nil {
-				return nil, fmt.Errorf("allowed keys path is empty")
-			}
-			allowedListJson, ok := allowedData["keys"].(string)
-			if !ok {
-				return nil, fmt.Errorf("invalid format for allowed keys: 'keys' field missing or not a list")
-			}
-			var allowedList []string
-			err = json.Unmarshal([]byte(allowedListJson), &allowedList)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse JSON keys: %w", err)
-			}
-			authorized, err = isKeyInAllowlist(key, allowedList)
-			if err != nil {
-				return nil, err
+
+			if allowedData != nil {
+				allowedList, err := parseAllowedKeys(allowedData)
+				if err != nil {
+					return nil, err
+				}
+
+				authorized, err = isKeyInAllowlist(key, allowedList)
+				if err != nil {
+					return nil, err
+				}
 			}
 		}
 
@@ -371,6 +368,20 @@ func isDownloadAuthorized(cfg *Config, keyAllowed bool, allowlistConfigured bool
 		return false
 	}
 	return true
+}
+
+func parseAllowedKeys(allowedData map[string]interface{}) ([]string, error) {
+	allowedListJSON, ok := allowedData["keys"].(string)
+	if !ok {
+		return nil, fmt.Errorf("invalid format for allowed keys: 'keys' field missing or not a list")
+	}
+
+	var allowedList []string
+	if err := json.Unmarshal([]byte(allowedListJSON), &allowedList); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON keys: %w", err)
+	}
+
+	return allowedList, nil
 }
 
 func isKeyInAllowlist(key ssh.PublicKey, allowedList []string) (bool, error) {

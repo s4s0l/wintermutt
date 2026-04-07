@@ -98,3 +98,19 @@ func TestRenderCLIInstallScriptIncludesServerSettings(t *testing.T) {
 	assert.Contains(t, script, "WINTERMUTT_INSTALL_IDENTITY_FILE")
 	assert.Contains(t, script, "get-binary")
 }
+
+func TestParseAllowedKeysMissingKeysField(t *testing.T) {
+	_, err := parseAllowedKeys(map[string]interface{}{})
+	assert.EqualError(t, err, "invalid format for allowed keys: 'keys' field missing or not a list")
+}
+
+func TestParseAllowedKeysParsesJSONList(t *testing.T) {
+	keys, err := parseAllowedKeys(map[string]interface{}{"keys": `["ssh-ed25519 AAAA test@example"]`})
+	assert.NoError(t, err)
+	assert.Equal(t, []string{"ssh-ed25519 AAAA test@example"}, keys)
+}
+
+func TestParseAllowedKeysInvalidJSON(t *testing.T) {
+	_, err := parseAllowedKeys(map[string]interface{}{"keys": `not-json`})
+	assert.EqualError(t, err, "failed to parse JSON keys: invalid character 'o' in literal null (expecting 'u')")
+}

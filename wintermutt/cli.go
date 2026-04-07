@@ -130,6 +130,36 @@ func cliRm(cfg *Config, vault *Client, publicKey string) error {
 	return nil
 }
 
+func cliList(cfg *Config, vault *Client, publicKey string) error {
+	var secretPath string
+	if cfg.SecretPath != "" {
+		secretPath = cfg.SecretPath
+	} else {
+		fingerprint, err := deriveFingerprint(publicKey)
+		if err != nil {
+			return fmt.Errorf("failed to derive fingerprint: %w", err)
+		}
+		secretPath = path.Join(cfg.CommonPrefix, fingerprint)
+	}
+
+	names, err := vault.ListSecretNames(secretPath)
+	if err != nil {
+		return fmt.Errorf("failed to list secrets: %w", err)
+	}
+
+	if len(names) == 0 {
+		fmt.Println("No secrets found")
+		return nil
+	}
+
+	fmt.Println("Secret names:")
+	for i, name := range names {
+		fmt.Printf("%d. %s\n", i+1, name)
+	}
+
+	return nil
+}
+
 func cliSetShared(cfg *Config, vault *Client) error {
 	value, err := readSecretValue()
 	if err != nil {
@@ -152,6 +182,25 @@ func cliRmShared(cfg *Config, vault *Client) error {
 	}
 
 	fmt.Printf("Secret %s deleted successfully\n", cfg.SecretName)
+	return nil
+}
+
+func cliListShared(cfg *Config, vault *Client) error {
+	names, err := vault.ListSecretNames(cfg.CliSharedPath)
+	if err != nil {
+		return fmt.Errorf("failed to list shared secrets: %w", err)
+	}
+
+	if len(names) == 0 {
+		fmt.Println("No shared secrets found")
+		return nil
+	}
+
+	fmt.Println("Shared secret names:")
+	for i, name := range names {
+		fmt.Printf("%d. %s\n", i+1, name)
+	}
+
 	return nil
 }
 

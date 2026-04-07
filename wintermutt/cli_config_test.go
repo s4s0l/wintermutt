@@ -120,6 +120,63 @@ func TestLoadCLISharedOpsRejectPath(t *testing.T) {
 	assert.EqualError(t, err, "-path is not allowed for set-shared operation")
 }
 
+func TestLoadCLIListWithPathSkipsPublicKey(t *testing.T) {
+	cfg, err := LoadCLI(&CommonConfig{}, withExplicitTokenFile([]string{"list", "-vault-address", "http://127.0.0.1:8200", "-path", "secrets/data/custom"}))
+	require.NoError(t, err)
+	assert.Equal(t, "secrets/data/custom", cfg.SecretPath)
+}
+
+func TestLoadCLIListWithPublicKeyAndCommonPrefix(t *testing.T) {
+	cfg, err := LoadCLI(&CommonConfig{}, withExplicitTokenFile([]string{"list", "-vault-address", "http://127.0.0.1:8200", "-public-key", "id.pub", "-common-prefix", "secrets/data/wintermutt"}))
+	require.NoError(t, err)
+	assert.Equal(t, "id.pub", cfg.PublicKeyFile)
+	assert.Equal(t, "secrets/data/wintermutt", cfg.CommonPrefix)
+}
+
+func TestLoadCLIListRequiresPublicKeyOrPath(t *testing.T) {
+	_, err := LoadCLI(&CommonConfig{}, withExplicitTokenFile([]string{"list", "-vault-address", "http://127.0.0.1:8200", "-common-prefix", "secrets/data/wintermutt"}))
+	require.Error(t, err)
+	assert.EqualError(t, err, "-public-key is required for CLI mode (unless -path is provided)")
+}
+
+func TestLoadCLIListRejectsName(t *testing.T) {
+	_, err := LoadCLI(&CommonConfig{}, withExplicitTokenFile([]string{"list", "-vault-address", "http://127.0.0.1:8200", "-path", "secrets/data/custom", "-name", "api_key"}))
+	require.Error(t, err)
+	assert.EqualError(t, err, "-name is not allowed for list operation")
+}
+
+func TestLoadCLIListSharedAcceptsSharedPath(t *testing.T) {
+	cfg, err := LoadCLI(&CommonConfig{}, withExplicitTokenFile([]string{"list-shared", "-vault-address", "http://127.0.0.1:8200", "-shared-path", "secrets/data/wintermutt/shared"}))
+	require.NoError(t, err)
+	assert.Equal(t, "secrets/data/wintermutt/shared", cfg.CliSharedPath)
+}
+
+func TestLoadCLIListSharedRequiresSharedPath(t *testing.T) {
+	t.Setenv("WINTERMUTT_CONFIG_FILE", filepath.Join(t.TempDir(), "does-not-exist.yml"))
+
+	_, err := LoadCLI(&CommonConfig{}, withExplicitTokenFile([]string{"list-shared", "-vault-address", "http://127.0.0.1:8200"}))
+	require.Error(t, err)
+	assert.EqualError(t, err, "-shared-path is required for list-shared operation")
+}
+
+func TestLoadCLIListSharedRejectsPublicKey(t *testing.T) {
+	_, err := LoadCLI(&CommonConfig{}, withExplicitTokenFile([]string{"list-shared", "-vault-address", "http://127.0.0.1:8200", "-shared-path", "secrets/data/wintermutt/shared", "-public-key", "id.pub"}))
+	require.Error(t, err)
+	assert.EqualError(t, err, "-public-key is not allowed for list-shared operation")
+}
+
+func TestLoadCLIListSharedRejectsPath(t *testing.T) {
+	_, err := LoadCLI(&CommonConfig{}, withExplicitTokenFile([]string{"list-shared", "-vault-address", "http://127.0.0.1:8200", "-shared-path", "secrets/data/wintermutt/shared", "-path", "secrets/data/custom"}))
+	require.Error(t, err)
+	assert.EqualError(t, err, "-path is not allowed for list-shared operation")
+}
+
+func TestLoadCLIListSharedRejectsName(t *testing.T) {
+	_, err := LoadCLI(&CommonConfig{}, withExplicitTokenFile([]string{"list-shared", "-vault-address", "http://127.0.0.1:8200", "-shared-path", "secrets/data/wintermutt/shared", "-name", "api_key"}))
+	require.Error(t, err)
+	assert.EqualError(t, err, "-name is not allowed for list-shared operation")
+}
+
 func TestLoadCLIUsesDefaultHomeVaultTokenWhenFlagMissing(t *testing.T) {
 	home := t.TempDir()
 	defaultTokenPath := filepath.Join(home, ".vault-token")

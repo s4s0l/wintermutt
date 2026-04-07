@@ -153,6 +153,15 @@ func applyCLIConfigFileDefaults(cfg *Config, flagsSet map[string]bool) error {
 	return nil
 }
 
+func defaultVaultTokenFilePath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve home directory: %w", err)
+	}
+
+	return filepath.Join(home, ".vault-token"), nil
+}
+
 func LoadCLI(common *CommonConfig, args []string) (*Config, error) {
 	cfg, flagsSet, positionalArgs, err := parseCLIArgs(common, args)
 	if err != nil {
@@ -216,6 +225,21 @@ func LoadCLI(common *CommonConfig, args []string) (*Config, error) {
 		}
 	}
 
+	if cfg.VaultTokenFile == "" {
+		defaultTokenFile, err := defaultVaultTokenFilePath()
+		if err != nil {
+			return nil, err
+		}
+
+		if _, err := os.Stat(defaultTokenFile); err == nil {
+			cfg.VaultTokenFile = defaultTokenFile
+		} else if os.IsNotExist(err) {
+			return nil, fmt.Errorf("-vault-token-file is required")
+		} else {
+			return nil, fmt.Errorf("failed to access default token file %s: %w", defaultTokenFile, err)
+		}
+	}
+
 	return cfg, nil
 }
 
@@ -235,7 +259,7 @@ Options:
   -vault-address string    Address of the HashiCorp Vault server (required)
   -common-prefix string    Common prefix for secrets in Vault (required for set/rm/allow/revoke)
   -allowed-keys-path string Path to Vault secret containing JSON list of allowed keys (required for allow/revoke/list-allowed)
-  -vault-token-file string Path to file containing Vault token
+  -vault-token-file string Path to file containing Vault token (defaults to ~/.vault-token when omitted)
   -public-key string      Path to public key file
   -op string              CLI operation (set, rm, set-shared, rm-shared, allow, revoke, list-allowed)
   -name string            Name of the secret (for set/rm/set-shared/rm-shared)
@@ -245,6 +269,7 @@ Options:
 Config file defaults (cli mode):
   - uses WINTERMUTT_CONFIG_FILE when set
   - otherwise uses ~/.config/wintermutt/wintermutt.yml when present
+  - uses ~/.vault-token when -vault-token-file is omitted
   - expected YAML format:
       wintermutt:
         vault_address: http://127.0.0.1:8200

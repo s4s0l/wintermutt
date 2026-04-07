@@ -9,6 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func withExplicitTokenFile(args []string) []string {
+	return append(args, "-vault-token-file", "/tmp/test-vault-token")
+}
+
 func TestLoadCLIUsesConfigFileDefaults(t *testing.T) {
 	t.Setenv("WINTERMUTT_CONFIG_FILE", filepath.Join(t.TempDir(), "wintermutt.yml"))
 	require.NoError(t, os.WriteFile(os.Getenv("WINTERMUTT_CONFIG_FILE"), []byte(`wintermutt:
@@ -17,7 +21,7 @@ func TestLoadCLIUsesConfigFileDefaults(t *testing.T) {
   allowed_keys_path: secrets/data/wintermutt/allowed-keys
 `), 0o600))
 
-	cfg, err := LoadCLI(&CommonConfig{}, []string{"set", "-path", "secrets/data/custom", "-name", "api_key"})
+	cfg, err := LoadCLI(&CommonConfig{}, withExplicitTokenFile([]string{"set", "-path", "secrets/data/custom", "-name", "api_key"}))
 	require.NoError(t, err)
 
 	assert.Equal(t, "http://127.0.0.1:8200", cfg.VaultAddress)
@@ -31,7 +35,7 @@ func TestLoadCLIArgOverridesConfigFile(t *testing.T) {
   vault_address: http://127.0.0.1:8200
 `), 0o600))
 
-	cfg, err := LoadCLI(&CommonConfig{}, []string{"set", "-vault-address", "http://192.168.1.10:8200", "-path", "secrets/data/custom", "-name", "api_key"})
+	cfg, err := LoadCLI(&CommonConfig{}, withExplicitTokenFile([]string{"set", "-vault-address", "http://192.168.1.10:8200", "-path", "secrets/data/custom", "-name", "api_key"}))
 	require.NoError(t, err)
 
 	assert.Equal(t, "http://192.168.1.10:8200", cfg.VaultAddress)
@@ -43,7 +47,7 @@ func TestLoadCLIMissingRequiredSettingReportsError(t *testing.T) {
   vault_address: http://127.0.0.1:8200
 `), 0o600))
 
-	_, err := LoadCLI(&CommonConfig{}, []string{"list-allowed"})
+	_, err := LoadCLI(&CommonConfig{}, withExplicitTokenFile([]string{"list-allowed"}))
 	require.Error(t, err)
 	assert.EqualError(t, err, "-allowed-keys-path is required for list-allowed operation")
 }
@@ -59,7 +63,7 @@ func TestLoadCLIDefaultConfigPathFromHome(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("WINTERMUTT_CONFIG_FILE", "")
 
-	cfg, err := LoadCLI(&CommonConfig{}, []string{"set", "-path", "secrets/data/custom", "-name", "api_key"})
+	cfg, err := LoadCLI(&CommonConfig{}, withExplicitTokenFile([]string{"set", "-path", "secrets/data/custom", "-name", "api_key"}))
 	require.NoError(t, err)
 	assert.Equal(t, "http://127.0.0.1:8200", cfg.VaultAddress)
 }
@@ -67,7 +71,7 @@ func TestLoadCLIDefaultConfigPathFromHome(t *testing.T) {
 func TestLoadCLIMissingConfigFileIsNonFatal(t *testing.T) {
 	t.Setenv("WINTERMUTT_CONFIG_FILE", filepath.Join(t.TempDir(), "does-not-exist.yml"))
 
-	cfg, err := LoadCLI(&CommonConfig{}, []string{"set", "-vault-address", "http://127.0.0.1:8200", "-path", "secrets/data/custom", "-name", "api_key"})
+	cfg, err := LoadCLI(&CommonConfig{}, withExplicitTokenFile([]string{"set", "-vault-address", "http://127.0.0.1:8200", "-path", "secrets/data/custom", "-name", "api_key"}))
 	require.NoError(t, err)
 	assert.Equal(t, "http://127.0.0.1:8200", cfg.VaultAddress)
 }
@@ -79,7 +83,7 @@ func TestLoadCLISharedPathFromConfigFile(t *testing.T) {
   shared_path: secrets/data/wintermutt/shared
 `), 0o600))
 
-	cfg, err := LoadCLI(&CommonConfig{}, []string{"set-shared", "-name", "api_key"})
+	cfg, err := LoadCLI(&CommonConfig{}, withExplicitTokenFile([]string{"set-shared", "-name", "api_key"}))
 	require.NoError(t, err)
 	assert.Equal(t, "secrets/data/wintermutt/shared", cfg.CliSharedPath)
 }
@@ -91,7 +95,7 @@ func TestLoadCLISharedPathArgOverridesConfigFile(t *testing.T) {
   shared_path: secrets/data/from-config
 `), 0o600))
 
-	cfg, err := LoadCLI(&CommonConfig{}, []string{"set-shared", "-name", "api_key", "-shared-path", "secrets/data/from-arg"})
+	cfg, err := LoadCLI(&CommonConfig{}, withExplicitTokenFile([]string{"set-shared", "-name", "api_key", "-shared-path", "secrets/data/from-arg"}))
 	require.NoError(t, err)
 	assert.Equal(t, "secrets/data/from-arg", cfg.CliSharedPath)
 }
@@ -99,19 +103,57 @@ func TestLoadCLISharedPathArgOverridesConfigFile(t *testing.T) {
 func TestLoadCLISharedOpsRequireSharedPath(t *testing.T) {
 	t.Setenv("WINTERMUTT_CONFIG_FILE", filepath.Join(t.TempDir(), "does-not-exist.yml"))
 
-	_, err := LoadCLI(&CommonConfig{}, []string{"set-shared", "-vault-address", "http://127.0.0.1:8200", "-name", "api_key"})
+	_, err := LoadCLI(&CommonConfig{}, withExplicitTokenFile([]string{"set-shared", "-vault-address", "http://127.0.0.1:8200", "-name", "api_key"}))
 	require.Error(t, err)
 	assert.EqualError(t, err, "-shared-path is required for set-shared operation")
 }
 
 func TestLoadCLISharedOpsRejectPublicKey(t *testing.T) {
-	_, err := LoadCLI(&CommonConfig{}, []string{"rm-shared", "-vault-address", "http://127.0.0.1:8200", "-name", "api_key", "-shared-path", "secrets/data/wintermutt/shared", "-public-key", "id.pub"})
+	_, err := LoadCLI(&CommonConfig{}, withExplicitTokenFile([]string{"rm-shared", "-vault-address", "http://127.0.0.1:8200", "-name", "api_key", "-shared-path", "secrets/data/wintermutt/shared", "-public-key", "id.pub"}))
 	require.Error(t, err)
 	assert.EqualError(t, err, "-public-key is not allowed for rm-shared operation")
 }
 
 func TestLoadCLISharedOpsRejectPath(t *testing.T) {
-	_, err := LoadCLI(&CommonConfig{}, []string{"set-shared", "-vault-address", "http://127.0.0.1:8200", "-name", "api_key", "-shared-path", "secrets/data/wintermutt/shared", "-path", "secrets/data/custom"})
+	_, err := LoadCLI(&CommonConfig{}, withExplicitTokenFile([]string{"set-shared", "-vault-address", "http://127.0.0.1:8200", "-name", "api_key", "-shared-path", "secrets/data/wintermutt/shared", "-path", "secrets/data/custom"}))
 	require.Error(t, err)
 	assert.EqualError(t, err, "-path is not allowed for set-shared operation")
+}
+
+func TestLoadCLIUsesDefaultHomeVaultTokenWhenFlagMissing(t *testing.T) {
+	home := t.TempDir()
+	defaultTokenPath := filepath.Join(home, ".vault-token")
+	require.NoError(t, os.WriteFile(defaultTokenPath, []byte("token"), 0o600))
+
+	t.Setenv("HOME", home)
+	t.Setenv("WINTERMUTT_CONFIG_FILE", filepath.Join(t.TempDir(), "does-not-exist.yml"))
+
+	cfg, err := LoadCLI(&CommonConfig{}, []string{"set", "-vault-address", "http://127.0.0.1:8200", "-path", "secrets/data/custom", "-name", "api_key"})
+	require.NoError(t, err)
+	assert.Equal(t, defaultTokenPath, cfg.VaultTokenFile)
+}
+
+func TestLoadCLIExplicitVaultTokenFileOverridesDefault(t *testing.T) {
+	home := t.TempDir()
+	defaultTokenPath := filepath.Join(home, ".vault-token")
+	require.NoError(t, os.WriteFile(defaultTokenPath, []byte("default-token"), 0o600))
+
+	explicitTokenPath := filepath.Join(home, "custom-token")
+
+	t.Setenv("HOME", home)
+	t.Setenv("WINTERMUTT_CONFIG_FILE", filepath.Join(t.TempDir(), "does-not-exist.yml"))
+
+	cfg, err := LoadCLI(&CommonConfig{}, []string{"set", "-vault-address", "http://127.0.0.1:8200", "-vault-token-file", explicitTokenPath, "-path", "secrets/data/custom", "-name", "api_key"})
+	require.NoError(t, err)
+	assert.Equal(t, explicitTokenPath, cfg.VaultTokenFile)
+}
+
+func TestLoadCLIMissingVaultTokenFileReportsRequiredError(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("WINTERMUTT_CONFIG_FILE", filepath.Join(t.TempDir(), "does-not-exist.yml"))
+
+	_, err := LoadCLI(&CommonConfig{}, []string{"set", "-vault-address", "http://127.0.0.1:8200", "-path", "secrets/data/custom", "-name", "api_key"})
+	require.Error(t, err)
+	assert.EqualError(t, err, "-vault-token-file is required")
 }

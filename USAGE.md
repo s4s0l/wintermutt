@@ -54,7 +54,7 @@ Manages secrets and key allowlist in Vault.
 
 - `-vault-address` - Vault server URL
 - `-common-prefix` - Vault path prefix
-- `-vault-token-file` - Path to file with Vault token
+- `-vault-token-file` - Path to file with Vault token (defaults to `~/.vault-token` when omitted)
 - `-public-key` - Path to public key file
 - `-name` - Secret name
 - `-path` - Override Vault path directly
@@ -75,6 +75,8 @@ wintermutt:
 ```
 
 CLI flag precedence: explicit flag > config file > error.
+
+Vault token file resolution (cli mode): explicit `-vault-token-file` > `~/.vault-token` > error (`-vault-token-file` is required).
 
 ### SSH exec commands
 

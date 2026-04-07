@@ -23,6 +23,7 @@ Accepts SSH connections and outputs `export` statements for authenticated keys.
 - `-common-prefix` - Vault path prefix (e.g., `secrets/data/wintermutt`)
 - `-external-host` - Public SSH hostname (for cli-install)
 - `-external-port` - Public SSH port (for cli-install)
+- `-external-vault-address` - Vault address written to client config (for cli-install)
 
 **Optional flags:**
 
@@ -133,6 +134,7 @@ services:
       - -common-prefix=secrets/data/wintermutt
       - -external-host=your.host.example
       - -external-port=2222
+      - -external-vault-address=https://vault.your.host.example:8200
       - -storage=/app/storage
     healthcheck:
       test: ["CMD", "nc", "-z", "127.0.0.1", "2222"]
@@ -208,6 +210,7 @@ wintermutt serve \
   -enable-binary-download \
   -external-host "localhost" \
   -external-port "2222" \
+  -external-vault-address "$VAULT_ADDR" \
   -listen-address ":2222"
 ```
 

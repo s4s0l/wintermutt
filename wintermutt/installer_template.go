@@ -26,7 +26,7 @@ func renderCLIInstallScript(cfg *Config) (string, error) {
 	}
 
 	data := cliInstallScriptData{
-		VaultAddress:    cfg.VaultAddress,
+		VaultAddress:    cfg.ExternalVaultAddress,
 		CommonPrefix:    cfg.CommonPrefix,
 		SharedPath:      cfg.SharedPath,
 		AllowedKeysPath: cfg.AllowedKeysPath,

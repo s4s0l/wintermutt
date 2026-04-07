@@ -97,6 +97,8 @@ func TestLoadCLISharedPathArgOverridesConfigFile(t *testing.T) {
 }
 
 func TestLoadCLISharedOpsRequireSharedPath(t *testing.T) {
+	t.Setenv("WINTERMUTT_CONFIG_FILE", filepath.Join(t.TempDir(), "does-not-exist.yml"))
+
 	_, err := LoadCLI(&CommonConfig{}, []string{"set-shared", "-vault-address", "http://127.0.0.1:8200", "-name", "api_key"})
 	require.Error(t, err)
 	assert.EqualError(t, err, "-shared-path is required for set-shared operation")

@@ -18,6 +18,7 @@ type ServerConfig struct {
 	DisallowDownloadByAnybody bool
 	ExternalHost              string
 	ExternalPort              string
+	ExternalVaultAddress      string
 }
 
 var serverCfg ServerConfig
@@ -33,6 +34,7 @@ func init() {
 	flag.BoolVar(&serverCfg.DisallowDownloadByAnybody, "disallow-download-by-anybody", false, "Require download commands to use an allowed key when -allowed-keys-path is configured")
 	flag.StringVar(&serverCfg.ExternalHost, "external-host", "", "Public SSH host used by generated cli-install script")
 	flag.StringVar(&serverCfg.ExternalPort, "external-port", "", "Public SSH port used by generated cli-install script")
+	flag.StringVar(&serverCfg.ExternalVaultAddress, "external-vault-address", "", "Vault address written to generated cli-install config")
 }
 
 func LoadServer(common *CommonConfig) (*Config, error) {
@@ -72,6 +74,9 @@ func LoadServer(common *CommonConfig) (*Config, error) {
 	if cfg.ExternalPort == "" {
 		return nil, fmt.Errorf("-external-port is required")
 	}
+	if cfg.ExternalVaultAddress == "" {
+		return nil, fmt.Errorf("-external-vault-address is required")
+	}
 	if cfg.DisallowDownloadByAnybody && cfg.AllowedKeysPath == "" {
 		return nil, fmt.Errorf("-allowed-keys-path is required when -disallow-download-by-anybody is set")
 	}
@@ -93,9 +98,10 @@ Options:
   -storage string          Directory to store the server host key (default: .)
   -enable-binary-download  Allow authenticated SSH clients to use 'get-binary' and 'cli-install'
   -disallow-download-by-anybody Require download commands to use an allowed key when -allowed-keys-path is configured
-  -external-host string    Public SSH host used by generated cli-install script (required)
-  -external-port string    Public SSH port used by generated cli-install script (required)
-  -allowed-keys-path string Path to Vault secret containing JSON list of allowed keys
+	-external-host string    Public SSH host used by generated cli-install script (required)
+	-external-port string    Public SSH port used by generated cli-install script (required)
+	-external-vault-address string Vault address written to generated cli-install config (required)
+	-allowed-keys-path string Path to Vault secret containing JSON list of allowed keys
 
 Common Options (also available in cli mode):
   -log-level string        Log level: debug, info, warn, error (default: info)
